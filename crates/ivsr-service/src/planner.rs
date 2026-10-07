@@ -303,8 +303,14 @@ mod tests {
         fs::write(path, b"").unwrap();
     }
 
+    /// Outputs relative to `root`, joined with `/` so expectations are separator-independent.
     fn names(jobs: &[PlannedJob], root: &Path) -> Vec<String> {
-        jobs.iter().map(|j| j.output.strip_prefix(root).unwrap().to_string_lossy().into_owned()).collect()
+        jobs.iter()
+            .map(|j| {
+                let rel = j.output.strip_prefix(root).unwrap();
+                rel.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
+            })
+            .collect()
     }
 
     #[test]
