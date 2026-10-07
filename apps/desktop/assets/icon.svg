@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <!-- coarse pixels on the left resolve into a smooth curve on the right -->
+  <g fill="url(#glow)">
+    <rect x="200" y="560" width="112" height="112" rx="12" opacity="0.55"/>
+    <rect x="200" y="432" width="112" height="112" rx="12" opacity="0.35"/>
+    <rect x="328" y="560" width="112" height="112" rx="12" opacity="0.8"/>
+    <rect x="328" y="688" width="112" height="112" rx="12" opacity="0.45"/>
+    <rect x="200" y="688" width="112" height="112" rx="12" opacity="0.25"/>
+  </g>
+  <path d="M440 800 C 560 800 600 520 824 232" fill="none" stroke="url(#glow)" stroke-width="72" stroke-linecap="round"/>
+  <path d="M760 360 l28 -72 l28 72 l72 28 l-72 28 l-28 72 l-28 -72 l-72 -28 z" fill="#e0f2fe"/>
+</svg>

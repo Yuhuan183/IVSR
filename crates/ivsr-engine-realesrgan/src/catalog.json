@@ -1,0 +1,256 @@
+{
+  "reference": {
+    "device": "Apple M4 Pro (16-core GPU, 24 GB unified memory)",
+    "runtime": "realesrgan-ncnn-vulkan 20220424 (Real-ESRGAN v0.2.5.0)",
+    "measured_on": "2026-10-07"
+  },
+  "architectures": {
+    "rrdb": {
+      "class": "heavy",
+      "summary": {
+        "en": "ESRGAN RRDB, 23 blocks (~16.7M weights): the most detail, the slowest. Memory grows with tile size.",
+        "zh-TW": "ESRGAN RRDB 架構, 23 個區塊 (約 1,670 萬權重): 細節最多、速度最慢. 記憶體用量隨 tile 大小增加."
+      },
+      "memory_by_tile": [
+        { "tile": 0, "mb": 1480 },
+        { "tile": 32, "mb": 656 },
+        { "tile": 64, "mb": 660 },
+        { "tile": 128, "mb": 940 },
+        { "tile": 256, "mb": 2060 },
+        { "tile": 400, "mb": 4100 }
+      ]
+    },
+    "rrdb-6b": {
+      "class": "medium",
+      "summary": {
+        "en": "ESRGAN RRDB, 6 blocks (~4.5M weights): about twice as fast as the 23-block models.",
+        "zh-TW": "ESRGAN RRDB 架構, 6 個區塊 (約 450 萬權重): 速度約為 23 區塊模型的兩倍."
+      },
+      "memory_by_tile": [
+        { "tile": 0, "mb": 1215 },
+        { "tile": 64, "mb": 335 },
+        { "tile": 128, "mb": 687 },
+        { "tile": 256, "mb": 1794 }
+      ]
+    },
+    "compact": {
+      "class": "light",
+      "summary": {
+        "en": "SRVGG compact network (0.6-1.2M weights): very fast and light; runs on almost any GPU.",
+        "zh-TW": "SRVGG 輕量網路 (60 萬至 120 萬權重): 非常快、資源需求低, 幾乎任何 GPU 都能執行."
+      },
+      "memory_by_tile": [
+        { "tile": 0, "mb": 250 },
+        { "tile": 64, "mb": 186 },
+        { "tile": 128, "mb": 203 },
+        { "tile": 256, "mb": 282 }
+      ]
+    }
+  },
+  "models": [
+    {
+      "id": "realesrgan-x4plus",
+      "engine": "realesrgan",
+      "name": "Real-ESRGAN x4plus",
+      "description": {
+        "en": "General-purpose model for photos and real-world images.",
+        "zh-TW": "通用模型, 適合照片與真實場景影像."
+      },
+      "scales": [4],
+      "tags": ["photo", "general"],
+      "architecture": "rrdb",
+      "license": "BSD-3-Clause",
+      "author": "Xintao Wang et al.",
+      "homepage": "https://github.com/xinntao/Real-ESRGAN",
+      "bundled": true,
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 1.22 },
+        { "width": 512, "height": 512, "seconds": 3.35 }
+      ]
+    },
+    {
+      "id": "realesrgan-x4plus-anime",
+      "engine": "realesrgan",
+      "name": "Real-ESRGAN x4plus Anime",
+      "description": {
+        "en": "Optimised for anime and illustration stills.",
+        "zh-TW": "針對動畫與插畫靜態圖最佳化."
+      },
+      "scales": [4],
+      "tags": ["anime", "illustration"],
+      "architecture": "rrdb-6b",
+      "license": "BSD-3-Clause",
+      "author": "Xintao Wang et al.",
+      "homepage": "https://github.com/xinntao/Real-ESRGAN",
+      "bundled": true,
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 0.61 },
+        { "width": 512, "height": 512, "seconds": 1.26 }
+      ]
+    },
+    {
+      "id": "realesr-animevideov3",
+      "engine": "realesrgan",
+      "name": "Real-ESRGAN AnimeVideo v3",
+      "description": {
+        "en": "Small, fast model for anime video; supports x2, x3 and x4.",
+        "zh-TW": "小而快的動畫影片模型, 支援 x2、x3、x4."
+      },
+      "scales": [2, 3, 4],
+      "tags": ["anime", "video", "fast"],
+      "architecture": "compact",
+      "license": "BSD-3-Clause",
+      "author": "Xintao Wang et al.",
+      "homepage": "https://github.com/xinntao/Real-ESRGAN",
+      "bundled": true,
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 0.17 },
+        { "width": 512, "height": 512, "seconds": 0.32 }
+      ]
+    },
+    {
+      "id": "realesr-general-x4v3",
+      "engine": "realesrgan",
+      "name": "Real-ESRGAN General v3",
+      "description": {
+        "en": "Tiny general-scene model with strong denoising; a fast alternative to x4plus.",
+        "zh-TW": "輕量的通用場景模型, 降噪較強; 可作為 x4plus 的快速替代."
+      },
+      "version": "upscayl/custom-models@4b6d2cf",
+      "scales": [4],
+      "tags": ["photo", "general", "fast"],
+      "architecture": "compact",
+      "license": "BSD-3-Clause",
+      "author": "Xintao Wang et al.",
+      "homepage": "https://github.com/xinntao/Real-ESRGAN",
+      "files": [
+        { "role": "param", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/RealESRGAN_General_x4_v3.param", "size": 5019, "sha256": "22174924330297357434ad21ed0af7f4b820008d2a502b492754d130d4142714" },
+        { "role": "bin", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/RealESRGAN_General_x4_v3.bin", "size": 2435272, "sha256": "85ee266b632a765a725425ba6a5620c088c8aa2939a03063b2d83b3462724cc1" }
+      ],
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 0.31 },
+        { "width": 512, "height": 512, "seconds": 0.73 }
+      ]
+    },
+    {
+      "id": "realesr-general-wdn-x4v3",
+      "engine": "realesrgan",
+      "name": "Real-ESRGAN General v3 (weak denoise)",
+      "description": {
+        "en": "General v3 with weak denoising: keeps grain and fine texture.",
+        "zh-TW": "General v3 的弱降噪版本: 保留顆粒感與細部紋理."
+      },
+      "version": "upscayl/custom-models@4b6d2cf",
+      "scales": [4],
+      "tags": ["photo", "general", "fast"],
+      "architecture": "compact",
+      "license": "BSD-3-Clause",
+      "author": "Xintao Wang et al.",
+      "homepage": "https://github.com/xinntao/Real-ESRGAN",
+      "files": [
+        { "role": "param", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/RealESRGAN_General_WDN_x4_v3.param", "size": 5019, "sha256": "22174924330297357434ad21ed0af7f4b820008d2a502b492754d130d4142714" },
+        { "role": "bin", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/RealESRGAN_General_WDN_x4_v3.bin", "size": 2435272, "sha256": "74eae91a6230cbe5b931be6c49141faaff0034976933d4da9accb77c329c8a78" }
+      ],
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 0.30 },
+        { "width": 512, "height": 512, "seconds": 0.73 }
+      ]
+    },
+    {
+      "id": "4x-LSDIRCompactC3",
+      "engine": "realesrgan",
+      "name": "LSDIR Compact C3",
+      "description": {
+        "en": "Fast photo upscaler that also cleans up JPEG compression.",
+        "zh-TW": "快速的照片放大模型, 同時修復 JPEG 壓縮痕跡."
+      },
+      "version": "upscayl/custom-models@4b6d2cf",
+      "scales": [4],
+      "tags": ["photo", "jpeg", "fast"],
+      "architecture": "compact",
+      "license": "CC-BY-4.0",
+      "author": "Philip Hofmann (Helaman)",
+      "homepage": "https://openmodeldb.info/models/4x-LSDIRCompactC3",
+      "files": [
+        { "role": "param", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xLSDIRCompactC3.param", "size": 2767, "sha256": "6e3795fb5b6c68b2c39822e78bf83b575c918f96e9db6c36934a79e7d491d5e1" },
+        { "role": "bin", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xLSDIRCompactC3.bin", "size": 1247368, "sha256": "692aa5e70c86522ce2d72b94f372751339a2fee65f515d06da5d496d8cf93667" }
+      ],
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 0.28 },
+        { "width": 512, "height": 512, "seconds": 0.68 }
+      ]
+    },
+    {
+      "id": "4x-LSDIRplusC",
+      "engine": "realesrgan",
+      "name": "LSDIR plus C",
+      "description": {
+        "en": "Real-ESRGAN x4plus fine-tuned on the LSDIR dataset; handles JPEG compression.",
+        "zh-TW": "以 LSDIR 資料集微調的 Real-ESRGAN x4plus, 可處理 JPEG 壓縮."
+      },
+      "version": "upscayl/custom-models@4b6d2cf",
+      "scales": [4],
+      "tags": ["photo", "jpeg"],
+      "architecture": "rrdb",
+      "license": "CC-BY-4.0",
+      "author": "Philip Hofmann (Helaman)",
+      "homepage": "https://openmodeldb.info/models/4x-LSDIRplusC",
+      "files": [
+        { "role": "param", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xLSDIRplusC.param", "size": 108039, "sha256": "4576ed5c2fc5fa250d3c3d585ef02248f26abdfc1867088078f501fe71e5d61e" },
+        { "role": "bin", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xLSDIRplusC.bin", "size": 33424520, "sha256": "6df18c714bb7d4ac63ca8a1fb1f1b2712fe3ef5a4b36f09bfa9b827da167ae81" }
+      ],
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 1.40 },
+        { "width": 512, "height": 512, "seconds": 3.27 }
+      ]
+    },
+    {
+      "id": "4x-Nomos8kSC",
+      "engine": "realesrgan",
+      "name": "Nomos8k SC",
+      "description": {
+        "en": "Photo upscaler trained with JPEG compression and blur; sharp, natural results.",
+        "zh-TW": "以 JPEG 壓縮與模糊訓練的照片放大模型, 結果銳利自然."
+      },
+      "version": "upscayl/custom-models@4b6d2cf",
+      "scales": [4],
+      "tags": ["photo"],
+      "architecture": "rrdb",
+      "license": "CC-BY-4.0",
+      "author": "Philip Hofmann (Helaman)",
+      "homepage": "https://openmodeldb.info/models/4x-Nomos8kSC",
+      "files": [
+        { "role": "param", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xNomos8kSC.param", "size": 108039, "sha256": "4576ed5c2fc5fa250d3c3d585ef02248f26abdfc1867088078f501fe71e5d61e" },
+        { "role": "bin", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xNomos8kSC.bin", "size": 33424520, "sha256": "da16e3880d87b177b7c6b659bbd880f8a101b868eb9ebc08d69eaa6d3edc4517" }
+      ],
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 1.16 },
+        { "width": 512, "height": 512, "seconds": 3.23 }
+      ]
+    },
+    {
+      "id": "4x-HFA2k",
+      "engine": "realesrgan",
+      "name": "HFA2k",
+      "description": {
+        "en": "Anime image upscaler with light JPEG and blur handling.",
+        "zh-TW": "動畫圖片放大模型, 可處理輕度 JPEG 壓縮與模糊."
+      },
+      "version": "upscayl/custom-models@4b6d2cf",
+      "scales": [4],
+      "tags": ["anime", "illustration"],
+      "architecture": "rrdb",
+      "license": "CC-BY-4.0",
+      "author": "Philip Hofmann (Helaman)",
+      "homepage": "https://openmodeldb.info/models/4x-HFA2k",
+      "files": [
+        { "role": "param", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xHFA2k.param", "size": 108039, "sha256": "4576ed5c2fc5fa250d3c3d585ef02248f26abdfc1867088078f501fe71e5d61e" },
+        { "role": "bin", "url": "https://raw.githubusercontent.com/upscayl/custom-models/4b6d2cfa59c7442af115dfc6e50fd8d7d40b96ef/models/4xHFA2k.bin", "size": 33424520, "sha256": "8a135402b4f39286121b76abb47601a6b7b7e8d4f3e999a5aaa45ed277824fb4" }
+      ],
+      "baseline": [
+        { "width": 256, "height": 256, "seconds": 1.14 },
+        { "width": 512, "height": 512, "seconds": 3.25 }
+      ]
+    }
+  ]
+}

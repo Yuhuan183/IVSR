@@ -1,0 +1,18 @@
+[package]
+name = "ivsr-media"
+description = "Image (image-rs) and video (ffmpeg) I/O for ivsr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ivsr-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+which.workspace = true
+image = { version = "0.25", default-features = false, features = ["rayon", "png", "jpeg", "webp", "bmp", "tiff", "gif", "tga", "qoi", "ico", "pnm"] }
+fast_image_resize = { version = "6", features = ["image"] }
+
+[dev-dependencies]
+tempfile.workspace = true

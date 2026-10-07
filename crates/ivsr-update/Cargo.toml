@@ -1,0 +1,22 @@
+[package]
+name = "ivsr-update"
+description = "Lightweight, source-agnostic update checking, downloading and installing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+thiserror.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+sha2 = "0.10"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+flate2 = "1"
+tar = "0.4"
+self-replace = "1.5"
+
+[dev-dependencies]
+tempfile.workspace = true

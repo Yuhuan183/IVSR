@@ -1,0 +1,14 @@
+# Build output
+target/
+dist/
+apps/desktop/src-tauri/gen/
+
+# Dependencies
+node_modules/
+
+# Local tool and editor state
+.claude/
+.DS_Store
+*.swp
+.idea/
+.vscode/

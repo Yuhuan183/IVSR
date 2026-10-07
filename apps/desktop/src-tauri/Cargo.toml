@@ -1,0 +1,24 @@
+[package]
+name = "ivsr-desktop"
+description = "ivsr desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "ivsr_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+ivsr-core.workspace = true
+ivsr-service.workspace = true
+ivsr-update.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"

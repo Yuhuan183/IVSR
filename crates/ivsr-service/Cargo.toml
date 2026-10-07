@@ -1,0 +1,29 @@
+[package]
+name = "ivsr-service"
+description = "Composition root shared by the ivsr CLI and desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ivsr-core.workspace = true
+ivsr-engine-realesrgan.workspace = true
+ivsr-media.workspace = true
+ivsr-update.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+semver.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+dirs.workspace = true
+sys-locale = "0.3"
+sha2 = "0.10"
+tempfile.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] }
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }

@@ -1,0 +1,16 @@
+[package]
+name = "ivsr-engine-realesrgan"
+description = "Real-ESRGAN (ncnn-vulkan) engine for ivsr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ivsr-core.workspace = true
+which.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
