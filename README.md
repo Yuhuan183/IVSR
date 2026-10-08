@@ -89,7 +89,7 @@ git commit -am "Release v0.2.0"
 git tag v0.2.0 && git push origin HEAD v0.2.0
 ```
 
-推送 tag 後, GitHub Actions 會為 macOS (Apple Silicon)、Windows x64、Linux x64 建置 CLI 與桌面版, 上傳到 draft release, 並檢查自動更新能正確選到每個平台的檔案. 確認 draft 內容後手動發布, 已安裝的 CLI 與桌面版才會收到更新. 版本含 `-` (例如 `v0.2.0-beta.1`) 會標成 pre-release, 只有 `update.channel = "beta"` 的使用者看得到, 適合先試跑流程. 細節見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「產品自身的發布慣例」.
+推送 tag 後, GitHub Actions 會為 macOS (Apple Silicon)、Windows x64、Linux x64 建置 CLI 與桌面版, 上傳到 draft release, 並檢查自動更新能正確選到每個平台的檔案. release note 由兩段組成: 安裝說明, 加上 GitHub 依 PR 標籤 (`enhancement`、`bug`、`documentation`) 分類列出自上一版以來合併的 PR (見 `.github/release.yml`; 直接 push 到 main 的 commit 不會列出). 確認 draft 內容後手動發布, 已安裝的 CLI 與桌面版才會收到更新. 版本含 `-` (例如 `v0.2.0-beta.1`) 會標成 pre-release, 只有 `update.channel = "beta"` 的使用者看得到, 適合先試跑流程. 細節見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「產品自身的發布慣例」.
 
 ## 專案結構
 

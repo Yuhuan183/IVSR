@@ -1,0 +1,24 @@
+# Groups the automatically generated release notes (`gh release create
+# --generate-notes` in workflows/release.yml) by pull request label. Pull
+# requests without a matching label land in 其他變更; only merged pull
+# requests are listed, not commits pushed straight to main.
+changelog:
+  exclude:
+    labels:
+      - duplicate
+      - invalid
+      - wontfix
+      - skip-changelog
+  categories:
+    - title: 新功能
+      labels:
+        - enhancement
+    - title: 問題修正
+      labels:
+        - bug
+    - title: 文件
+      labels:
+        - documentation
+    - title: 其他變更
+      labels:
+        - "*"

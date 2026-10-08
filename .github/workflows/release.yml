@@ -63,6 +63,8 @@ jobs:
           - macOS 版本未經 Apple 公證: 第一次開啟時若被擋下, 請到「系統設定 > 隱私權與安全性」允許. 從瀏覽器下載的 CLI 需先執行 `xattr -d com.apple.quarantine ivsr`.
           - 影片處理需要 `ffmpeg`; Real-ESRGAN 引擎會在第一次使用時下載.
           NOTES
+          # The install notes above come first; GitHub appends the merged pull
+          # requests since the previous release, grouped by .github/release.yml.
           gh release create "$TAG" --draft --verify-tag --title "IVSR ${TAG#v}" --notes-file notes.md --generate-notes $prerelease
 
   build:
