@@ -25,6 +25,15 @@ pub enum Flavor {
     Desktop,
 }
 
+/// How `flavor` recognises its asset for `platform` among a release's files.
+fn selector_for(flavor: Flavor, platform: Platform) -> PlatformSelector {
+    let selector = PlatformSelector::new(platform);
+    match flavor {
+        Flavor::Cli => selector.require("cli").suffixes([".tar.gz", ".zip"]),
+        Flavor::Desktop => selector.suffixes([".dmg", "-setup.exe", ".msi", ".appimage", ".deb"]),
+    }
+}
+
 pub struct Updates<'a> {
     config: &'a UpdateConfig,
     paths: &'a AppPaths,
@@ -71,11 +80,7 @@ impl<'a> Updates<'a> {
     }
 
     fn selector(&self) -> PlatformSelector {
-        let selector = PlatformSelector::new(Platform::current());
-        match self.flavor {
-            Flavor::Cli => selector.require("cli").suffixes([".tar.gz", ".zip"]),
-            Flavor::Desktop => selector.suffixes([".dmg", "-setup.exe", ".msi", ".appimage", ".deb"]),
-        }
+        selector_for(self.flavor, Platform::current())
     }
 
     fn store(&self) -> StateStore {
@@ -149,5 +154,85 @@ impl<'a> Updates<'a> {
         let _ = std::fs::remove_dir_all(&staging);
         let _ = std::fs::remove_file(archive_path);
         Ok(std::env::current_exe().unwrap_or(exe))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ivsr_update::{Arch, AssetSelector, Os, Release};
+
+    use super::*;
+
+    /// What the release workflow uploads for version 1.2.3: CLI archives named
+    /// by target triple and Tauri's default installer names.
+    const CANONICAL_ASSETS: &[&str] = &[
+        "ivsr-cli-1.2.3-aarch64-apple-darwin.tar.gz",
+        "ivsr-cli-1.2.3-x86_64-unknown-linux-gnu.tar.gz",
+        "ivsr-cli-1.2.3-x86_64-pc-windows-msvc.zip",
+        "IVSR_1.2.3_aarch64.dmg",
+        "IVSR_1.2.3_x64-setup.exe",
+        "IVSR_1.2.3_x64_en-US.msi",
+        "IVSR_1.2.3_amd64.AppImage",
+        "IVSR_1.2.3_amd64.deb",
+    ];
+
+    const SHIPPED: [(Os, Arch, &str, &str); 3] = [
+        (Os::Macos, Arch::Arm64, "-aarch64-apple-darwin.tar.gz", ".dmg"),
+        (Os::Linux, Arch::X64, "-x86_64-unknown-linux-gnu.tar.gz", ".appimage"),
+        (Os::Windows, Arch::X64, "-x86_64-pc-windows-msvc.zip", "-setup.exe"),
+    ];
+
+    fn release(names: &[String]) -> Release {
+        Release {
+            tag: "v1.2.3".into(),
+            version: None,
+            name: String::new(),
+            notes: String::new(),
+            prerelease: false,
+            published_at: None,
+            page_url: None,
+            assets: names
+                .iter()
+                .map(|n| Asset { name: n.clone(), size: 1, download_url: String::new(), api_url: None, digest: None })
+                .collect(),
+        }
+    }
+
+    /// Asset names from `IVSR_RELEASE_ASSETS` (one per line; the release
+    /// workflow passes the real upload list), else the canonical set.
+    fn assets() -> Vec<String> {
+        match std::env::var_os("IVSR_RELEASE_ASSETS") {
+            Some(file) => std::fs::read_to_string(&file)
+                .unwrap_or_else(|e| panic!("{}: {e}", std::path::Path::new(&file).display()))
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect(),
+            None => CANONICAL_ASSETS.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn release_assets_give_each_shipped_platform_one_cli_and_one_installer() {
+        let release = release(&assets());
+        for (os, arch, cli_suffix, installer_suffix) in SHIPPED {
+            let platform = Platform { os, arch };
+            let pick = |flavor| selector_for(flavor, platform).select(&release).map(|a| a.name.to_ascii_lowercase());
+            let cli = pick(Flavor::Cli).unwrap_or_else(|| panic!("{platform}: no CLI archive in {:?}", release.assets));
+            assert!(cli.starts_with("ivsr-cli-") && cli.ends_with(cli_suffix), "{platform}: CLI picked {cli}");
+            let app = pick(Flavor::Desktop).unwrap_or_else(|| panic!("{platform}: no installer in {:?}", release.assets));
+            assert!(app.ends_with(installer_suffix) && !app.contains("cli"), "{platform}: desktop picked {app}");
+        }
+    }
+
+    #[test]
+    fn release_assets_never_match_unshipped_platforms() {
+        let release = release(&assets());
+        for platform in [Platform { os: Os::Macos, arch: Arch::X64 }, Platform { os: Os::Linux, arch: Arch::Arm64 }] {
+            for flavor in [Flavor::Cli, Flavor::Desktop] {
+                let picked = selector_for(flavor, platform).select(&release).map(|a| a.name.clone());
+                assert_eq!(picked, None, "{platform} {flavor:?}");
+            }
+        }
     }
 }

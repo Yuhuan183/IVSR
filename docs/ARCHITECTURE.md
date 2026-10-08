@@ -210,8 +210,35 @@ token_env = ""            # 私有 repo: 存放 token 的環境變數名稱
 
 更新框架依資產檔名挑選平台:
 
-- CLI: `ivsr-cli-<version>-<target-triple>.tar.gz` (Windows 用 `.zip`), 壓縮檔內含 `ivsr` / `ivsr.exe`.
-- 桌面版: Tauri bundler 預設產出的 `.dmg`、`-setup.exe`、`.msi`、`.AppImage`.
+- CLI: `ivsr-cli-<version>-<target-triple>.tar.gz` (Windows 用 `.zip`), 壓縮檔根目錄就是 `ivsr` / `ivsr.exe`.
+- 桌面版: Tauri bundler 預設產出的 `.dmg`、`-setup.exe`、`.msi`、`.AppImage`、`.deb`.
+
+目前發布三個平台: macOS Apple Silicon (`aarch64-apple-darwin`)、Windows x64 (`x86_64-pc-windows-msvc`)、Linux x64 (`x86_64-unknown-linux-gnu`). 其他平台的更新檢查會找不到資產, 而不是誤選別的平台.
+
+### 發版流程
+
+```text
+scripts/bump-version.sh 0.2.0   ─▶ Cargo workspace 與 package.json 改成同一版本 (Tauri 讀 Cargo 的版本)
+commit + git tag v0.2.0 + push  ─▶ .github/workflows/release.yml
+  draft   檢查 tag == 版本 ─▶ 建立 draft release (版本含 `-` 時標為 pre-release, 只有 beta 通道看得到)
+          同一 tag 重跑時只會替換 draft 的檔案; 已發布的 release 一律拒絕
+  build   每個平台: 建置 CLI ─▶ 打包 ─▶ 以這個封裝檔跑自我更新測試 ─▶ 上傳 CLI
+                    ─▶ 建置桌面版 ─▶ 上傳安裝檔 (pre-release 不產 .msi: WiX 只接受數字的 pre-release 版號)
+  verify  列出 draft 的實際資產 ─▶ 每個資產都要有 GitHub 的 SHA-256 digest
+          ─▶ 用更新程式的選擇規則確認每個平台各挑到一個 CLI 與一個安裝檔
+人工檢查 draft ─▶ 發布 (自動更新只看得到已發布的 release)
+```
+
+### 更新相關測試
+
+- `crates/ivsr-cli/tests/update.rs`: 複製一份真的 `ivsr`, 對本機的模擬 GitHub API (`update.api_base`) 執行 `update check` 與 `update install`, 驗證選檔、下載、SHA-256、解壓與替換自己; digest 不符時必須中止且不動到執行檔. 平常的 `cargo test` 用合成的封裝檔, 發版時以 `IVSR_UPDATE_E2E_ARCHIVE` 指向剛打包的檔案, 並執行替換後的 `ivsr --version`. CI 在三個平台都會跑.
+- `crates/ivsr-service/src/updates.rs` 的 `release_assets` 測試: 預設用標準檔名, 發版時以 `IVSR_RELEASE_ASSETS` 換成 draft 的實際檔名清單.
+- 桌面版的更新是下載安裝檔後交給系統開啟, 開啟後的安裝流程沒有自動化測試.
+- CI 另以 Rust 1.88 (宣告的最低版本) 檢查桌面版以外的 crate; 桌面版因 Tauri 2.12 外掛需要 1.90.
+
+### macOS 簽章
+
+目前未使用 Developer ID 簽章與公證. 桌面版以 ad-hoc 簽章 (`bundle.macOS.signingIdentity = "-"`) 封裝, 使用者第一次開啟時需在系統設定中允許; 從瀏覽器下載的 CLI 需先移除 quarantine 屬性. 經由 `ivsr update install` 或桌面版內建更新下載的檔案不會被標記 quarantine.
 
 發布 repo 預設為 `Yuhuan183/IVSR`; 可在建置時以 `IVSR_UPDATE_REPOSITORY=owner/repo` 改寫預設值, 或由使用者以 `ivsr config set update.repository owner/repo` 設定 (設為空字串即停用更新檢查).
 
@@ -221,6 +248,6 @@ token_env = ""            # 私有 repo: 存放 token 的環境變數名稱
 - 瀏覽頁的影片目前只顯示圖示, 沒有影格縮圖.
 - 核心與服務層回傳的錯誤訊息 (例如找不到模型、參數超出範圍) 目前只有英文; 介面文字與 CLI 訊息已翻譯.
 - 非 NVIDIA 的獨立顯卡無法取得記憶體容量, 硬體建議只會列出需求.
-- 桌面版 macOS 安裝檔未簽章 / 未公證; 正式發布前需要 Developer ID 與 notarization.
+- 桌面版 macOS 安裝檔只有 ad-hoc 簽章, 未公證; 要讓使用者免手動允許, 需要 Developer ID 與 notarization.
 - 影片音軌以外的串流 (字幕、章節) 不會帶到輸出.
 - 可變幀率 (VFR) 影片會被轉成固定幀率.

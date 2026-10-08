@@ -12,10 +12,10 @@ serde_json.workspace = true
 semver.workspace = true
 thiserror.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
-sha2 = "0.10"
-zip = { version = "8", default-features = false, features = ["deflate"] }
-flate2 = "1"
-tar = "0.4"
+sha2.workspace = true
+zip.workspace = true
+flate2.workspace = true
+tar.workspace = true
 self-replace = "1.5"
 
 [dev-dependencies]

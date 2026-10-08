@@ -2199,6 +2199,7 @@ dependencies = [
  "clap_complete",
  "console",
  "ctrlc",
+ "flate2",
  "image",
  "indicatif",
  "ivsr-core",
@@ -2206,8 +2207,11 @@ dependencies = [
  "ivsr-update",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
+ "zip",
 ]
 
 [[package]]

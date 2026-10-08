@@ -26,3 +26,8 @@ ctrlc = "3.4"
 [dev-dependencies]
 tempfile.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Building and serving release archives in the self-update test.
+sha2.workspace = true
+zip.workspace = true
+flate2.workspace = true
+tar.workspace = true

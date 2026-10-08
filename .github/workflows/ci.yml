@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ffmpeg (video tests)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # Includes the self-update end-to-end test (crates/ivsr-cli/tests/update.rs)
+      # and the release asset contract test on every platform.
+      - run: cargo test --workspace --exclude ivsr-desktop --locked
+
+  msrv:
+    name: Minimum Rust version (1.88)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      # The desktop app declares its own, newer minimum (Tauri 2.12 plugins).
+      - run: cargo check --workspace --exclude ivsr-desktop --all-targets --locked
+
+  desktop:
+    name: Desktop app and lints
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Frontend
+        working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm check
+          pnpm build
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings

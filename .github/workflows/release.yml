@@ -1,0 +1,172 @@
+name: Release
+
+# Pushing a tag `v<version>` builds the CLI and the desktop app for each
+# shipped platform and uploads them to a draft release. Publish the draft by
+# hand after checking it; only published releases reach the auto-updater.
+# A version with a pre-release part (`v0.2.0-beta.1`) becomes a GitHub
+# pre-release, which only the `beta` update channel sees.
+#
+# Asset names follow docs/ARCHITECTURE.md ("產品自身的發布慣例"); the updater
+# selects by them, and the verify job checks the real upload list.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.ref_name }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  draft:
+    name: Draft release
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match the workspace version
+        id: version
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "ivsr-cli") | .version')
+          app=$(jq -r .version apps/desktop/package.json)
+          if [ "v$version" != "$TAG" ] || [ "$app" != "$version" ]; then
+            echo "::error::tag $TAG, Cargo.toml $version and package.json $app differ; run scripts/bump-version.sh"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Create the draft (once per tag)
+        run: |
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            # Re-runs may replace a draft's assets, never a published release's.
+            if [ "$draft" != "true" ]; then
+              echo "::error::release $TAG is already published; bump the version for a new release"
+              exit 1
+            fi
+            echo "draft $TAG already exists; its assets will be replaced"
+            exit 0
+          fi
+          prerelease=$([[ "$TAG" == *-* ]] && echo --prerelease || true)
+          cat > notes.md <<'NOTES'
+          ## 安裝
+
+          - 桌面版: macOS `.dmg` (Apple Silicon)、Windows `-setup.exe` 或 `.msi`、Linux `.AppImage` 或 `.deb`.
+          - CLI: `ivsr-cli-<版本>-<平台>` 壓縮檔, 解壓後把 `ivsr` 放進 `PATH`. 已安裝的 CLI 可直接執行 `ivsr update install`.
+          - macOS 版本未經 Apple 公證: 第一次開啟時若被擋下, 請到「系統設定 > 隱私權與安全性」允許. 從瀏覽器下載的 CLI 需先執行 `xattr -d com.apple.quarantine ivsr`.
+          - 影片處理需要 `ffmpeg`; Real-ESRGAN 引擎會在第一次使用時下載.
+          NOTES
+          gh release create "$TAG" --draft --verify-tag --title "IVSR ${TAG#v}" --notes-file notes.md --generate-notes $prerelease
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            bundles: app,dmg
+            installers: target/release/bundle/dmg/*.dmg
+          - os: ubuntu-22.04
+            bundles: appimage,deb
+            installers: target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb
+          - os: windows-latest
+            bundles: nsis,msi
+            installers: target/release/bundle/nsis/*-setup.exe target/release/bundle/msi/*.msi
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.draft.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # CLI first: a broken updater stops the release before the slow app build.
+      - name: Build and package the CLI
+        run: |
+          cargo build --release --locked -p ivsr-cli
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          mkdir -p dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            archive="dist/ivsr-cli-$VERSION-$triple.zip"
+            pwsh -NoProfile -Command "Compress-Archive -Path target/release/ivsr.exe -DestinationPath '$archive'"
+          else
+            archive="dist/ivsr-cli-$VERSION-$triple.tar.gz"
+            COPYFILE_DISABLE=1 tar -C target/release -czf "$archive" ivsr
+          fi
+          echo "CLI_ARCHIVE=$archive" >> "$GITHUB_ENV"
+      # Debug profile on purpose: the test's client must differ from the
+      # packaged release binary it is replaced with.
+      - name: Self-update test against the packaged CLI
+        run: cargo test --locked -p ivsr-cli --test update
+        env:
+          IVSR_UPDATE_E2E_ARCHIVE: ${{ github.workspace }}/${{ env.CLI_ARCHIVE }}
+          IVSR_UPDATE_E2E_VERSION: ${{ env.VERSION }}
+      - name: Upload the CLI
+        run: gh release upload "$TAG" "$CLI_ARCHIVE" --clobber
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+      - name: Build the desktop app
+        working-directory: apps/desktop
+        run: |
+          bundles=${{ matrix.bundles }}
+          # WiX (.msi) only accepts numeric pre-release parts, so pre-releases ship NSIS only.
+          if [[ "$VERSION" == *-* ]]; then bundles=${bundles/,msi/}; fi
+          pnpm install --frozen-lockfile
+          pnpm tauri build --ci --bundles "$bundles"
+      - name: Upload the installers
+        run: |
+          shopt -s nullglob
+          files=(${{ matrix.installers }})
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no installers found"
+            exit 1
+          fi
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  verify:
+    name: Verify the draft
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: List the uploaded assets
+        run: |
+          # Drafts are only listed for authenticated callers, never by tag.
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .assets[] | [.name, (.digest // \"\")] | @tsv" > assets.tsv
+          cat assets.tsv
+          cut -f1 assets.tsv > assets.txt
+          if awk -F'\t' '$2 == ""' assets.tsv | grep -q .; then
+            echo "::error::assets without a digest would only be size-checked by the updater"
+            exit 1
+          fi
+      - name: Updater picks one CLI archive and one installer per platform
+        run: cargo test --locked -p ivsr-service --lib release_assets
+        env:
+          IVSR_RELEASE_ASSETS: ${{ github.workspace }}/assets.txt

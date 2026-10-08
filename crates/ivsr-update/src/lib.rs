@@ -28,6 +28,6 @@ pub use github::GitHubSource;
 pub use http::{HttpClient, UreqClient};
 pub use release::{Asset, Release};
 pub use schedule::{CheckState, StateStore};
-pub use select::{AssetSelector, Platform, PlatformSelector};
+pub use select::{Arch, AssetSelector, Os, Platform, PlatformSelector};
 pub use source::{Channel, ReleaseSource};
 pub use updater::{UpdateCheck, Updater};

@@ -79,6 +79,16 @@ ivsr system                              # OS、CPU、記憶體、引擎可用�
 - 設定面板與濾鏡面板可拖曳左緣調整寬度 (按兩下恢復預設).
 - 倍率可選 ×1: 模型以原生倍率處理後縮回原尺寸, 尺寸不變但細節更清楚.
 
+## 發版
+
+```sh
+scripts/bump-version.sh 0.2.0             # 同步 Cargo workspace 與 package.json 的版本
+git commit -am "Release v0.2.0"
+git tag v0.2.0 && git push origin HEAD v0.2.0
+```
+
+推送 tag 後, GitHub Actions 會為 macOS (Apple Silicon)、Windows x64、Linux x64 建置 CLI 與桌面版, 上傳到 draft release, 並檢查自動更新能正確選到每個平台的檔案. 確認 draft 內容後手動發布, 已安裝的 CLI 與桌面版才會收到更新. 版本含 `-` (例如 `v0.2.0-beta.1`) 會標成 pre-release, 只有 `update.channel = "beta"` 的使用者看得到, 適合先試跑流程. 細節見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「產品自身的發布慣例」.
+
 ## 專案結構
 
 ```text
@@ -91,6 +101,8 @@ crates/
   ivsr-service/            組合根: 設定、語言、registry、規劃、佇列、模型管理、測速、歷史紀錄、更新策略
   ivsr-cli/                ivsr 命令列 (含訊息翻譯表)
 apps/desktop/              Tauri 2 + Svelte 5 桌面版 (src/lib/i18n 為翻譯字典)
+scripts/                   開發用工具 (bump-version.sh)
+.github/workflows/         CI (三平台測試) 與發版流程
 docs/
   ARCHITECTURE.md          架構文件
   SPRITE_POST_PROCESSING.md 遊戲 Sprite / 圖標超分後處理指南
