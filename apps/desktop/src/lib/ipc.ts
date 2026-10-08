@@ -6,6 +6,9 @@ import type {
   Bootstrap,
   Config,
   Enqueued,
+  FilterOutcome,
+  FilterStage,
+  FilterStep,
   HistoryItem,
   ImportRequest,
   InputItem,
@@ -30,6 +33,10 @@ export const ipc = {
   inspectInputs: (paths: string[], recursive: boolean) =>
     invoke<InputItem[]>("inspect_inputs", { paths, recursive }),
   thumbnail: (path: string) => invoke<string>("thumbnail", { path }),
+  filterPreview: (path: string, reference: string | null, stage: FilterStage, steps: FilterStep[]) =>
+    invoke<string>("filter_preview", { path, reference, stage, steps }),
+  filterSave: (path: string, reference: string | null, stage: FilterStage, steps: FilterStep[], output: string) =>
+    invoke<FilterOutcome>("filter_save", { path, reference, stage, steps, output }),
   enqueue: (inputs: string[], request: JobRequest) => invoke<Enqueued[]>("enqueue", { inputs, request }),
   cancelJob: (id: number) => invoke<boolean>("cancel_job", { id }),
   cancelAll: () => invoke<void>("cancel_all"),

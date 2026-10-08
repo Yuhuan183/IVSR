@@ -123,6 +123,7 @@
   }
   .toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
   }
@@ -145,6 +146,7 @@
     color: #fff;
   }
   .search {
+    min-width: 160px;
     display: flex;
     align-items: center;
     gap: 6px;

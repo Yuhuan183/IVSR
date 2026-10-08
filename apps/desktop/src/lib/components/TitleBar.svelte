@@ -5,6 +5,7 @@
   import { settings } from "../stores/settings.svelte";
   import { updates } from "../stores/updates.svelte";
   import Icon from "./Icon.svelte";
+  import UiScaleControl from "./UiScaleControl.svelte";
 
   const engine = $derived(settings.engineView);
   const ready = $derived(engine?.status.state === "ready");
@@ -28,18 +29,19 @@
     {#each tabs as tab (tab.id)}
       <button class="tab" class:active={nav.view === tab.id} aria-current={nav.view === tab.id ? "page" : undefined} onclick={() => (nav.view = tab.id)}>
         <Icon name={tab.icon} size={14} />
-        {t(tab.key)}
+        <span class="label">{t(tab.key)}</span>
       </button>
     {/each}
   </nav>
 
   <div class="right">
     {#if engine}
-      <span class="pill" class:ready title={engine.status.state === "ready" ? engine.status.location : ""}>
-        <span class="dot"></span>{engine.info.name}
+      <span class="pill" class:ready title={engine.status.state === "ready" ? engine.status.location : engine.info.name}>
+        <span class="dot"></span><span class="label">{engine.info.name}</span>
         {#if engine.installed}<span class="faint">{engine.installed.release}</span>{/if}
       </span>
     {/if}
+    <UiScaleControl />
     <select
       class="lang"
       value={language}
@@ -138,6 +140,27 @@
   .update {
     color: var(--accent-2);
     font-weight: 600;
+  }
+  /* Narrow windows (or a large content scale): icon-only tabs, compact status. */
+  @media (max-width: 760px) {
+    .bar {
+      padding: 0 8px;
+      gap: 6px;
+    }
+    .brand .faint,
+    .label,
+    .pill .faint {
+      display: none;
+    }
+    .tab {
+      padding: 5px 10px;
+    }
+    .pill {
+      padding: 3px 7px;
+    }
+    .right {
+      gap: 4px;
+    }
   }
   .spin {
     display: inline-flex;

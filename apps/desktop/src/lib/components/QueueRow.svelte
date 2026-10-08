@@ -17,6 +17,7 @@
     preparing: "stage.preparing",
     decoding: "stage.decoding",
     upscaling: "stage.upscaling",
+    filtering: "stage.filtering",
     encoding: "stage.encoding",
     finalizing: "stage.finalizing",
   };

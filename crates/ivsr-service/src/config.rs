@@ -58,6 +58,12 @@ impl FiltersConfig {
 pub struct UiConfig {
     /// `auto` (follow the OS), `en` or `zh-TW`.
     pub language: String,
+    /// Desktop app content scale (page zoom), 1.0 = 100%.
+    pub scale: f64,
+    /// Desktop app settings panel width, in CSS pixels at 100%.
+    pub panel_width: u32,
+    /// Desktop app viewer filter panel width, in CSS pixels at 100%.
+    pub filter_panel_width: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -78,7 +84,7 @@ pub struct HistoryConfig {
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { language: "auto".into() }
+        Self { language: "auto".into(), scale: 1.0, panel_width: 340, filter_panel_width: 320 }
     }
 }
 
@@ -364,9 +370,12 @@ mod tests {
         cfg.set("engines.realesrgan.params.tile", "256").unwrap();
         cfg.set("engines.realesrgan.model", "realesr-animevideov3").unwrap();
         cfg.set("work_dir", "/scratch").unwrap();
+        cfg.set("ui.scale", "1.5").unwrap();
+        cfg.set("ui.panel_width", "420").unwrap();
         assert_eq!(cfg.output.scale, 2.0);
         assert_eq!(cfg.video.preset.as_deref(), Some("8"));
         assert_eq!(cfg.video.audio, AudioMode::Drop);
+        assert_eq!((cfg.ui.scale, cfg.ui.panel_width), (1.5, 420));
         let engine = cfg.engine_config("realesrgan");
         assert_eq!(engine.params.get("tile"), Some(&ParamValue::Int(256)));
         assert_eq!(engine.model.as_deref(), Some("realesr-animevideov3"));

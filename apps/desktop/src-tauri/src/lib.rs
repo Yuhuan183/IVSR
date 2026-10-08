@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use ivsr_core::{CancelToken, CodecInfo, FormatInfo, MediaKind, ToolStatus};
+use ivsr_core::{CancelToken, CodecInfo, FilterStage, FilterStep, FormatInfo, MediaKind, ToolStatus};
 use ivsr_service::{
-    BenchmarkRecord, Config, EngineView, Flavor, HistoryEntry, ImportRequest, InstallProgress, InstallReport, JobEvent,
-    JobId, JobQueue, JobRequest, ModelOverview, Service, SystemInfo, VERSION,
+    BenchmarkRecord, Config, EngineView, FilterOutcome, FilterView, Flavor, HistoryEntry, ImportRequest,
+    InstallProgress, InstallReport, JobEvent, JobId, JobQueue, JobRequest, ModelOverview, Service, SystemInfo, VERSION,
 };
 use ivsr_update::{Asset, UpdateCheck};
 use serde::Serialize;
@@ -63,6 +63,15 @@ struct Bootstrap {
     config: Config,
     config_file: PathBuf,
     update_configured: bool,
+    filters: Vec<FilterView>,
+    /// Built-in steps per stage, for chains that do not list their own.
+    filter_defaults: FilterDefaults,
+}
+
+#[derive(Serialize)]
+struct FilterDefaults {
+    pre: Vec<FilterStep>,
+    post: Vec<FilterStep>,
 }
 
 fn bootstrap_of(service: &Service) -> Bootstrap {
@@ -79,6 +88,11 @@ fn bootstrap_of(service: &Service) -> Bootstrap {
         config: service.config().clone(),
         config_file: service.config_file().to_path_buf(),
         update_configured: service.updates(Flavor::Desktop, VERSION).is_configured(),
+        filters: service.filter_views(),
+        filter_defaults: FilterDefaults {
+            pre: registry.default_filter_steps(FilterStage::Pre),
+            post: registry.default_filter_steps(FilterStage::Post),
+        },
     }
 }
 
@@ -223,6 +237,40 @@ async fn install_engine(state: State<'_, AppState>, engine: String, channel: Cha
             .map_err(err)
     })
     .await
+}
+
+/// Filters `path` into the preview cache (readable by the webview) and
+/// returns the cached file.
+#[tauri::command]
+async fn filter_preview(
+    state: State<'_, AppState>,
+    path: PathBuf,
+    reference: Option<PathBuf>,
+    stage: FilterStage,
+    steps: Vec<FilterStep>,
+) -> CmdResult<PathBuf> {
+    let service = state.service();
+    blocking(move || service.filter_preview(&path, stage, &steps, reference.as_deref()).map_err(err)).await
+}
+
+/// Filters `path` into `output`, a location the user picked in a save dialog.
+#[tauri::command]
+async fn filter_save(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: PathBuf,
+    reference: Option<PathBuf>,
+    stage: FilterStage,
+    steps: Vec<FilterStep>,
+    output: PathBuf,
+) -> CmdResult<FilterOutcome> {
+    let service = state.service();
+    let quality = Some(service.config().output.image_quality);
+    let outcome =
+        blocking(move || service.filter_image(&path, &output, stage, &steps, reference.as_deref(), quality).map_err(err))
+            .await?;
+    allow_output(&app, &outcome.output);
+    Ok(outcome)
 }
 
 #[derive(Serialize)]
@@ -507,6 +555,11 @@ pub fn run() {
             let thumbs = service.thumbnail_dir();
             std::fs::create_dir_all(&thumbs)?;
             app.asset_protocol_scope().allow_directory(&thumbs, false)?;
+            // Filter previews only matter while the app runs.
+            let previews = service.preview_dir();
+            let _ = std::fs::remove_dir_all(&previews);
+            std::fs::create_dir_all(&previews)?;
+            app.asset_protocol_scope().allow_directory(&previews, false)?;
 
             let subscriber: Arc<Mutex<Option<Channel<JobEvent>>>> = Arc::default();
             let sink = subscriber.clone();
@@ -536,6 +589,8 @@ pub fn run() {
             take_launch_inputs,
             inspect_inputs,
             thumbnail,
+            filter_preview,
+            filter_save,
             enqueue,
             cancel_job,
             cancel_all,
