@@ -162,7 +162,7 @@
       "name": "LSDIR Compact C3",
       "description": {
         "en": "Fast photo upscaler that also cleans up JPEG compression.",
-        "zh-TW": "快速的照片放大模型, 同時修復 JPEG 壓縮痕跡."
+        "zh-TW": "快速的照片高畫質化模型, 同時修復 JPEG 壓縮痕跡."
       },
       "version": "upscayl/custom-models@4b6d2cf",
       "scales": [4],
@@ -210,7 +210,7 @@
       "name": "Nomos8k SC",
       "description": {
         "en": "Photo upscaler trained with JPEG compression and blur; sharp, natural results.",
-        "zh-TW": "以 JPEG 壓縮與模糊訓練的照片放大模型, 結果銳利自然."
+        "zh-TW": "以 JPEG 壓縮與模糊訓練的照片高畫質化模型, 結果銳利自然."
       },
       "version": "upscayl/custom-models@4b6d2cf",
       "scales": [4],
@@ -234,7 +234,7 @@
       "name": "HFA2k",
       "description": {
         "en": "Anime image upscaler with light JPEG and blur handling.",
-        "zh-TW": "動畫圖片放大模型, 可處理輕度 JPEG 壓縮與模糊."
+        "zh-TW": "動畫圖片高畫質化模型, 可處理輕度 JPEG 壓縮與模糊."
       },
       "version": "upscayl/custom-models@4b6d2cf",
       "scales": [4],

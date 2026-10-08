@@ -36,7 +36,7 @@ impl Filter for ToneRestore {
                  contrast that upscaling flattened. Without a reference it applies a gentle S-curve. In videos \
                  the curve is blended across frames to avoid flicker.",
             )
-            .with("zh-TW", "讓成果的亮度分布貼近送進引擎的原圖, 拉回放大時被壓平的對比與暗部. 沒有參考圖時改用和緩的 S 曲線. 影片會跨幀平滑曲線, 避免閃爍."),
+            .with("zh-TW", "讓成果的亮度分布貼近送進引擎的原圖, 拉回高畫質化時被壓平的對比與暗部. 沒有參考圖時改用和緩的 S 曲線. 影片會跨幀平滑曲線, 避免閃爍."),
             stages: vec![FilterStage::Post],
             uses_reference: true,
         }

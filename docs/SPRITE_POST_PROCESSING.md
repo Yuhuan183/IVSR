@@ -130,12 +130,12 @@ uv run crates/ivsr-filters/prototype/enhance_sr_sprites.py \
 | 3 | `detail-sharpen` | 雙頻 Coring 銳化 + 邊緣衰減 | `amount`（`--sharpen`）、`clarity`（`--clarity`）、`coring`（`--coring`） |
 | 4 | `saturation` | A/B 通道飽和度 | `amount`（`--sat`） |
 
-內建前處理只有 `alpha-bleed`（`threshold = 0`）：放大前只替完全透明的像素填色，可見像素不變。以 `realesrgan-x4plus` 放大硬去背 sprite 實測，alpha 1–60 的邊緣像素平均亮度從 74.6 回到 104.0（來源為 104.1），即模型讀到透明區的黑色所造成的深色髒邊。
+內建前處理只有 `alpha-bleed`（`threshold = 0`）：高畫質化前只替完全透明的像素填色，可見像素不變。以 `realesrgan-x4plus` 放大硬去背 sprite 實測，alpha 1–60 的邊緣像素平均亮度從 74.6 回到 104.0（來源為 104.1），即模型讀到透明區的黑色所造成的深色髒邊。
 
 ### 使用方式
 
 ```sh
-ivsr --post icon.png                                    # 放大後以內建順序後製
+ivsr --post icon.png                                    # 高畫質化後以內建順序後製
 ivsr --pre --post=tone-restore,detail-sharpen clip.mp4  # 影片同樣適用, 逐幀以來源幀為參考
 ivsr --post -F detail-sharpen.amount=1.4 gems/          # 調整單一步驟的參數
 ivsr filters                                            # 列出濾鏡與目前的處理鏈

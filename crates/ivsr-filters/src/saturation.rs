@@ -16,7 +16,7 @@ impl Filter for Saturation {
             id: ID.into(),
             name: Text::en("Saturation").with("zh-TW", "飽和度"),
             description: Text::en("Scales colourfulness without changing brightness; upscaled colours often come out slightly washed out.")
-                .with("zh-TW", "調整色彩鮮豔度, 不改變亮度; 放大後的顏色常會略為泛白."),
+                .with("zh-TW", "調整色彩鮮豔度, 不改變亮度; 高畫質化後的顏色常會略為泛白."),
             stages: vec![FilterStage::Pre, FilterStage::Post],
             uses_reference: false,
         }
