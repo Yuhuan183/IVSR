@@ -15,11 +15,14 @@
   const appimage = $derived(updates.mode === "appimage");
   /** Installing replaces or restarts the app, so it waits for running jobs. */
   const jobsRunning = $derived(queue.counts.active > 0);
+  const os = $derived(app.boot?.platform);
+  /** What will happen, shown before the user agrees. */
   const next = $derived.by(() => {
     if (appimage) return t("update.next_appimage");
-    const os = app.boot?.platform;
     return t(os === "macos" ? "update.next_macos" : os === "windows" ? "update.next_windows" : "update.next_linux");
   });
+  /** What the user does now that the installer is open. */
+  const then = $derived(t(os === "macos" ? "update.then_macos" : os === "windows" ? "update.then_windows" : "update.then_linux"));
 
   // Escape closes only an open dialog (and not mid-download); otherwise it is
   // left to the viewer and others.
@@ -62,7 +65,7 @@
         <p>{t("update.restarting")}</p>
       {:else if phase === "opened"}
         <p class="ok">{t("update.installer_opened")}</p>
-        <p>{next}</p>
+        <p>{then}</p>
       {:else if phase === "failed"}
         <p class="err">{t("update.failed", { error: updates.installError ?? "" })}</p>
       {/if}
