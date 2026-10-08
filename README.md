@@ -34,10 +34,24 @@ ivsr -p tile=256 -p tta=true big.png     # 引擎參數 (見 ivsr engines show r
 ivsr clip.mp4 -m realesr-animevideov3 --codec h265 --crf 20
 ivsr -n shots/                           # dry run: 只顯示會產生哪些檔案
 ivsr --json clip.mp4                     # 每行一個 JSON 事件, 方便腳本整合
+ivsr --post icon.png                     # 放大後以內建順序後製 (階調還原、細節銳化...)
+ivsr --pre --post=tone-restore clip.mp4  # 影片也適用; --post=a,b 依序指定步驟
+ivsr --post -F detail-sharpen.amount=1.4 gems/   # 調整單一濾鏡參數
 ivsr --lang zh-TW engines                # 介面語言 (也可用 IVSR_LANG 或 ui.language)
 ```
 
 `ivsr <檔案>` 等同 `ivsr upscale <檔案>`; 完整選項見 `ivsr upscale --help`. 處理中按 Ctrl-C 會取消並清除暫存檔, 再按一次則立即結束.
+
+### 前處理與後製
+
+濾鏡分兩段: 前處理在放大前處理來源, 後製以最終尺寸處理成果, 並以送進引擎的那張圖為參考. 每段有總開關和有序的步驟, 預設都關閉. 內建濾鏡與原理見 [docs/SPRITE_POST_PROCESSING.md](docs/SPRITE_POST_PROCESSING.md).
+
+```sh
+ivsr filters                             # 濾鏡、可用階段與目前的處理鏈
+ivsr filters show detail-sharpen         # 參數說明
+ivsr filters apply out/icon_x4.png       # 只套用濾鏡 (圖片); 原圖自動從歷史紀錄找回, 或用 --reference 指定
+ivsr config set filters.post.enabled true   # 預設開啟後製
+```
 
 ### 模型管理
 
@@ -58,22 +72,28 @@ ivsr system                              # OS、CPU、記憶體、引擎可用�
 ## 桌面版
 
 - **放大**: 拖放或選擇檔案 / 資料夾, 依模型的本機測速顯示每個項目的預估時間.
-- **瀏覽**: 列出 app 與 CLI 完成的成果. 比較檢視器有三種模式: 滑桿 (可拖曳分隔線)、並排雙窗格、淡入淡出; 兩側同步縮放平移, 影片同步播放. 快捷鍵: `1`/`2`/`3` 切換模式、滾輪縮放、`0` 符合視窗、`←`/`→` 上下一個、空白鍵播放.
+- **前處理 / 後製**: 設定面板可開關兩段處理, 並調整步驟的順序、開關與參數; 設定與 CLI 共用.
+- **瀏覽**: 列出 app 與 CLI 完成的成果. 比較檢視器有三種模式: 滑桿 (可拖曳分隔線)、並排雙窗格、淡入淡出; 兩側同步縮放平移, 影片同步播放. 快捷鍵: `1`/`2`/`3` 切換模式、滾輪縮放、`0` 符合視窗、`←`/`→` 上下一個、空白鍵播放、`F` 濾鏡面板、`\` 開關濾鏡. 濾鏡面板可對超分前或超分後的圖試套濾鏡, 並選擇對照未套用的同一張圖或另一側; 畫面左上角隨時標示濾鏡是否已套用. 可另存套用後的圖, 或把步驟設為工作流預設.
 - **模型**: 硬體資訊、模型安裝 / 更新 / 測速 / 移除 / 匯入, 以及硬體需求與 GPU 建議.
-- 右上角可切換語言 (跟隨系統 / English / 正體中文), 設定與 CLI 共用.
+- 右上角可切換語言 (跟隨系統 / English / 正體中文). 文字大小圖示可調整介面大小 (100%–200%, 也可用 Cmd/Ctrl 加 `+` `-` `0`), 比較檢視器的工具列也有同一個按鈕; 視窗變窄或介面放大時版面會自動調整, 設定面板改為側拉抽屜. 設定與 CLI 共用.
+- 設定面板與濾鏡面板可拖曳左緣調整寬度 (按兩下恢復預設).
+- 倍率可選 ×1: 模型以原生倍率處理後縮回原尺寸, 尺寸不變但細節更清楚.
 
 ## 專案結構
 
 ```text
 crates/
-  ivsr-core/               介面 (Engine, ImageIo, VideoIo, Reporter, ParamSpec)、模型 / 型錄型別、處理流程
+  ivsr-core/               介面 (Engine, Filter, ImageIo, VideoIo, Reporter, ParamSpec)、模型 / 型錄型別、處理流程
   ivsr-engine-realesrgan/  Real-ESRGAN 引擎實作與內建模型型錄 (catalog.json)
+  ivsr-filters/            內建前處理 / 後製濾鏡 (prototype/ 為最初的 Python 原型)
   ivsr-media/              圖片 (image-rs) 與影片 (ffmpeg) I/O 實作
   ivsr-update/             獨立的更新框架 (ReleaseSource, GitHub, 下載驗證, 解壓, 自我替換)
   ivsr-service/            組合根: 設定、語言、registry、規劃、佇列、模型管理、測速、歷史紀錄、更新策略
   ivsr-cli/                ivsr 命令列 (含訊息翻譯表)
-apps/desktop/               Tauri 2 + Svelte 5 桌面版 (src/lib/i18n 為翻譯字典)
-docs/ARCHITECTURE.md        架構文件
+apps/desktop/              Tauri 2 + Svelte 5 桌面版 (src/lib/i18n 為翻譯字典)
+docs/
+  ARCHITECTURE.md          架構文件
+  SPRITE_POST_PROCESSING.md 遊戲 Sprite / 圖標超分後處理指南
 ```
 
 ## 授權

@@ -33,20 +33,20 @@
                        │ config · registry ·  │  config.toml, planner,
                        │ planner · queue ·    │  job queue, engine install,
                        │ engines · updates    │  self-update policy
-                       └──┬──────┬──────┬─────┘
-            ┌─────────────┘      │      └───────────────┐
-            ▼                    ▼                      ▼
-┌───────────────────────┐ ┌─────────────┐      ┌────────────────┐
-│ ivsr-engine-realesrgan│ │ ivsr-media  │      │  ivsr-update   │
-│   impl Engine         │ │ impl ImageIo│      │ (standalone;   │
-└──────────┬────────────┘ │ impl VideoIo│      │  no ivsr deps) │
-           │              └──────┬──────┘      └────────────────┘
-           ▼                     ▼
-        ┌───────────────────────────────┐
-        │           ivsr-core           │  traits + pipeline,
-        │ Engine · ImageIo · VideoIo ·  │  no tools, no config,
-        │ Reporter · ParamSpec · plan   │  no frontends
-        └───────────────────────────────┘
+                       └──┬─────┬─────┬────┬──┘
+          ┌───────────────┘     │     │    └──────────────────┐
+          ▼                     ▼     ▼                       ▼
+┌───────────────────────┐ ┌──────────────┐ ┌─────────────┐ ┌────────────────┐
+│ ivsr-engine-realesrgan│ │ ivsr-filters │ │ ivsr-media  │ │  ivsr-update   │
+│   impl Engine         │ │ impl Filter  │ │ impl ImageIo│ │ (standalone;   │
+└──────────┬────────────┘ └──────┬───────┘ │ impl VideoIo│ │  no ivsr deps) │
+           │                     │         └──────┬──────┘ └────────────────┘
+           ▼                     ▼                ▼
+        ┌──────────────────────────────────────────────┐
+        │                  ivsr-core                   │  traits + pipeline,
+        │ Engine · Filter · ImageIo · VideoIo ·        │  no tools, no config,
+        │ Reporter · ParamSpec · plan                  │  no frontends
+        └──────────────────────────────────────────────┘
 ```
 
 相依只往下走. `ivsr-core` 不認識任何具體工具; `ivsr-update` 完全獨立, 可以直接拿去給別的產品用.
@@ -58,7 +58,8 @@
 | 介面 | 職責 | 目前實作 |
 | --- | --- | --- |
 | `Engine` (`engine.rs`) | 自我描述 (`info`, `models`, `params`, `caps`, `distribution`) 並執行 `upscale(UpscaleTask)` | `RealEsrgan` |
-| `ImageIo` (`media.rs`) | 圖片 `probe` 與 `convert` (解碼、重取樣、編碼) | `RasterIo` (image + fast_image_resize) |
+| `Filter` / `FilterRun` (`filter.rs`) | 前處理 / 後製濾鏡: 自我描述 (`info` 含可用階段, `params`), 每個 job `start` 一個有狀態的 run, 依顯示順序逐張 `apply(Frame, reference)` | `alpha-bleed`、`tone-restore`、`detail-sharpen`、`saturation` |
+| `ImageIo` (`media.rs`) | 圖片 `probe` 與 `convert` (解碼、重取樣、編碼), 以及濾鏡用的 `decode` / `encode` (RGBA8 `Frame`) | `RasterIo` (image + fast_image_resize) |
 | `VideoIo` + `FrameEncoder` (`media.rs`) | 影片 `probe`、抽幀、開啟串流編碼器 | `Ffmpeg` |
 | `Reporter` / `TaskContext` (`progress.rs`) | 進度與日誌回報, 取消權杖 | CLI 進度條、JSON 事件、GUI Channel |
 | `ParamSpec` / `ParamValues` (`params.rs`) | 引擎參數 schema 與驗證 | CLI `-p key=value`、GUI 動態表單共用 |
@@ -73,8 +74,10 @@
 圖片:
 
 ```text
-probe ─▶ (引擎不吃該格式時先轉 PNG) ─▶ Engine::upscale(native scale)
-      ─▶ (倍率非原生 或 格式不同時) ImageIo::convert(resize + encode) ─▶ persist
+probe ─▶ (有前處理: decode ─▶ pre 濾鏡 ─▶ PNG | 引擎不吃該格式時先轉 PNG) ─▶ Engine::upscale(native scale)
+      ─▶ 有後製: decode(縮放到最終尺寸) ─▶ post 濾鏡 (參考圖 = 送進引擎的那張) ─▶ encode
+         沒有後製: (倍率非原生 或 格式不同時) ImageIo::convert(resize + encode)
+      ─▶ persist
 ```
 
 倍率規劃 (`scale.rs`): 有原生倍率就直接用; 否則用大於需求的最小原生倍率, 再以 Lanczos3 縮回. 例如 x4plus 只有 x4, 使用者要 x2 時模型跑 x4 再縮到 x2.
@@ -82,12 +85,13 @@ probe ─▶ (引擎不吃該格式時先轉 PNG) ─▶ Engine::upscale(native 
 影片:
 
 ```text
-probe ─▶ extract_frames (CFR, 原解析度) ─▶ 每批 N 幀: Engine::upscale(dir)
-                                                  └─▶ FrameEncoder::push_frame (ffmpeg stdin) ─▶ 刪除
+probe ─▶ extract_frames (CFR, 原解析度) ─▶ 每批 N 幀: pre 濾鏡 (就地改寫來源幀) ─▶ Engine::upscale(dir)
+                                                  └─▶ post 濾鏡 (縮放到最終尺寸, 參考圖 = 同一幀來源)
+                                                  └─▶ FrameEncoder::push_frame (ffmpeg stdin) ─▶ 刪除結果與來源幀
       ─▶ FrameEncoder::finish (帶原音軌) ─▶ persist
 ```
 
-抽幀固定用來源的平均幀率 (CFR), 讓幀數與音軌長度一致. 批次大小 `video.batch_frames` (預設 48) 控制暫存空間與引擎啟動次數之間的取捨.
+抽幀固定用來源的平均幀率 (CFR), 讓幀數與音軌長度一致. 有後製時幀已是最終尺寸, 編碼器不再縮放. 批次大小 `video.batch_frames` (預設 48) 控制暫存空間與引擎啟動次數之間的取捨.
 
 ## 擴充指南
 
@@ -96,6 +100,11 @@ probe ─▶ extract_frames (CFR, 原解析度) ─▶ 每批 N 幀: Engine::ups
 1. 新增 crate 實作 `ivsr_core::Engine`. 參數用 `ParamSpec` 描述, CLI 與 GUI 不用改.
 2. 若可自動安裝, 實作 `distribution()` 與 `install_dir()`.
 3. 在 `crates/ivsr-service/src/registry.rs` 的 `builtin_engines` 加一行.
+
+新增濾鏡:
+
+1. 在 `crates/ivsr-filters` 實作 `ivsr_core::Filter`: `info` 宣告 id、多語名稱與可用階段 (`pre` / `post`), 參數用 `ParamSpec` 描述; `start` 回傳的 `FilterRun` 可保留跨幀狀態 (影片逐幀依序送入). 完全透明的像素不得改動, 除非那正是濾鏡的用途.
+2. 在 `ivsr_filters::builtin` 加一行; 要放進內建順序就改 `ivsr_filters::default_steps`. CLI (`ivsr filters`、`-F id.key=value`) 與 GUI (設定面板、檢視器濾鏡面板) 都直接讀 schema, 不用改.
 
 新增格式 / codec: 圖片格式加在 `crates/ivsr-media/src/image_io.rs` 的 `FORMATS`, 影片 codec 加在 `crates/ivsr-media/src/ffmpeg/codecs.rs` 的 `CODECS`. 前端選單直接讀這兩張表.
 
@@ -144,13 +153,15 @@ remove  ─▶ 只允許受管模型; 若是預設模型, 同時清除設定中�
 
 - `Service::run` 每完成一個 job 就寫入 `<data>/history.json` (保留最新 500 筆, 同一輸出檔只留最新一筆). CLI 與 GUI 共用, 所以命令列跑的結果也會出現在 GUI 的瀏覽頁.
 - 檢視器的兩個圖層共用同一個 transform, 縮放與平移在三種模式中永遠對齊; 原圖以結果的尺寸繪製, 放大到超過 1:1 時切換成 nearest-neighbor, 呈現真實像素. 切換模式時保持畫面中心不變. 影片模式以結果影片為主時鐘, 每幀校正原片的播放位置.
+- 濾鏡面板 (`F`) 在核心端算出預覽檔: 對超分後的圖套後製 (以超分前為參考), 或對超分前的圖套前處理. 「套用濾鏡」總開關 (`\`) 關閉時不計算預覽; 開啟時套用濾鏡的圖一律在右側圖層, 左側依「對照」選擇未套用的同一張圖或另一側. 畫面上的圖層標籤、面板的「左 / 右」說明與左上角狀態標籤都由同一份圖層資料產生, 三處不會不一致. 影片只能在放大時處理.
+- 介面大小用 webview 的頁面縮放 (`setZoom`), 會讓 CSS viewport 變窄, 所以 RWD 只需一個 760px 斷點: 標題列改為圖示、設定面板改為抽屜、檢視器標題列換行、濾鏡面板浮在圖片上.
 
 ## GUI 設計重點
 
 - Rust 端是唯一做事的地方: 媒體探測、縮圖 (`Service::thumbnail`, 160px JPEG 快取)、檔案存取、子程序管理都在核心服務. Webview 只負責呈現與送出意圖.
 - 進度用 `tauri::ipc::Channel` 串流, 核心端節流到每個 job 約 10 Hz.
 - 每個佇列項目是獨立的 Svelte 5 `$state` 物件, 一次進度更新只重繪該列; 進度條用 `transform: scaleX` 更新, 不觸發 layout.
-- 拖放使用 Tauri 原生 drag-drop 事件 (拿得到檔案路徑). asset protocol 的 scope 一開始是空的, 只對縮圖快取目錄、加入佇列的圖片與產出檔逐一放行.
+- 拖放使用 Tauri 原生 drag-drop 事件 (拿得到檔案路徑). asset protocol 的 scope 一開始是空的, 只對縮圖快取目錄、濾鏡預覽快取目錄 (每次啟動清空)、加入佇列的圖片與產出檔逐一放行.
 - GUI 與 CLI 共用同一份 `config.toml`, 在 GUI 改的預設值 CLI 立即沿用.
 
 ## 設定檔
@@ -177,6 +188,14 @@ batch_frames = 48
 model = "realesrgan-x4plus"
 [engines.realesrgan.params]
 tile = 0
+
+[filters.pre]               # 前處理: 放大前處理來源
+enabled = false
+[filters.post]              # 後製: 以最終尺寸處理成果
+enabled = false             # 沒有 steps 時沿用內建順序
+# [[filters.post.steps]]    # 自訂順序: 依序列出, 可停用個別步驟或覆寫參數
+# id = "detail-sharpen"
+# params = { amount = 1.4 }
 
 [update]
 provider = "github"
