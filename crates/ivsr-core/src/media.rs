@@ -55,12 +55,46 @@ pub struct ImageEncodeOptions {
     pub resize: Option<(u32, u32)>,
 }
 
+impl ImageEncodeOptions {
+    /// `format` at its default settings, without resampling.
+    pub fn lossless(format: &str) -> Self {
+        Self { format: format.into(), quality: None, resize: None }
+    }
+}
+
+/// A decoded picture: 8-bit RGBA, row-major, straight (not premultiplied) alpha.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frame {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height * 4` bytes.
+    pub pixels: Vec<u8>,
+    /// Whether the alpha channel carries information. When false every alpha
+    /// is 255 and encoders write the picture without one.
+    pub has_alpha: bool,
+}
+
+impl Frame {
+    pub fn filled(width: u32, height: u32, rgba: [u8; 4], has_alpha: bool) -> Self {
+        let pixels = rgba.iter().copied().cycle().take(width as usize * height as usize * 4).collect();
+        Self { width, height, pixels, has_alpha }
+    }
+
+    pub fn pixel_count(&self) -> usize {
+        self.width as usize * self.height as usize
+    }
+}
+
 /// Still-image decoding, resampling and encoding.
 pub trait ImageIo: Send + Sync {
     fn formats(&self) -> Vec<FormatInfo>;
     fn probe(&self, path: &Path) -> Result<ImageInfo>;
     /// Decodes `src`, applies `opts.resize`, and encodes to `dst` as `opts.format`.
     fn convert(&self, src: &Path, dst: &Path, opts: &ImageEncodeOptions) -> Result<()>;
+    /// Decodes `path` to RGBA, resampled to `size` when given.
+    fn decode(&self, path: &Path, size: Option<(u32, u32)>) -> Result<Frame>;
+    /// Encodes `frame` to `dst` as `opts.format`, applying `opts.resize`.
+    fn encode(&self, frame: &Frame, dst: &Path, opts: &ImageEncodeOptions) -> Result<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

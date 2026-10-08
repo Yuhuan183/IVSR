@@ -114,30 +114,31 @@ fn show(service: &Service, id: &str, ui: &Ui) -> CmdResult {
     let rows: Vec<Vec<String>> = view
         .params
         .iter()
-        .map(|p| {
-            let kind = match &p.kind {
-                ParamKind::Bool => "bool".to_string(),
-                ParamKind::Int { min, max } => format!(
-                    "int {}..{}",
-                    min.map(|v| v.to_string()).unwrap_or_default(),
-                    max.map(|v| v.to_string()).unwrap_or_default()
-                ),
-                ParamKind::Float { min, max } => format!(
-                    "float {}..{}",
-                    min.map(|v| v.to_string()).unwrap_or_default(),
-                    max.map(|v| v.to_string()).unwrap_or_default()
-                ),
-                ParamKind::Enum { options } => options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join("|"),
-                ParamKind::Text => "text".to_string(),
-            };
-            vec![p.key.clone(), kind, p.default.to_string(), text(&p.description).to_string()]
-        })
+        .map(|p| vec![p.key.clone(), param_kind(&p.kind), p.default.to_string(), text(&p.description).to_string()])
         .collect();
     ui::table(
         &[tr!("engines.col_key"), tr!("engines.col_type"), tr!("engines.col_default"), tr!("engines.col_description")],
         &rows,
     );
     Ok(ExitCode::SUCCESS)
+}
+
+/// `int 0..4096`, `bool`, `a|b|c`: a parameter's type for help tables.
+pub(crate) fn param_kind(kind: &ParamKind) -> String {
+    let range = |min: String, max: String| format!("{min}..{max}");
+    match kind {
+        ParamKind::Bool => "bool".to_string(),
+        ParamKind::Int { min, max } => format!(
+            "int {}",
+            range(min.map(|v| v.to_string()).unwrap_or_default(), max.map(|v| v.to_string()).unwrap_or_default())
+        ),
+        ParamKind::Float { min, max } => format!(
+            "float {}",
+            range(min.map(|v| v.to_string()).unwrap_or_default(), max.map(|v| v.to_string()).unwrap_or_default())
+        ),
+        ParamKind::Enum { options } => options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join("|"),
+        ParamKind::Text => "text".to_string(),
+    }
 }
 
 fn install(service: &Service, id: &str, force: bool, ui: &Ui) -> CmdResult {

@@ -5,13 +5,15 @@ mod image;
 mod video;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::filter::Runner;
 use crate::scale::{ScalePlan, plan_scale};
 use crate::{
-    CancelToken, Engine, Error, ImageIo, LogLevel, MediaKind, ModelInfo, ParamValues, Progress, Reporter, Result,
-    Stage, VideoEncodeOptions, VideoIo,
+    CancelToken, Engine, Error, Filter, FilterSetup, FilterSpec, FilterStage, ImageIo, LogLevel, MediaKind, ModelInfo,
+    ParamValues, Progress, Reporter, Result, Stage, VideoEncodeOptions, VideoIo,
 };
 
 /// Everything a job needs to know about how to upscale.
@@ -27,6 +29,21 @@ pub struct UpscaleSettings {
     pub video: VideoEncodeOptions,
     /// Frames upscaled per engine invocation; bounds temporary disk usage.
     pub batch_frames: u32,
+    /// Filters run on the source before the engine, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pre: Vec<FilterSpec>,
+    /// Filters run on the engine output at its final size, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub post: Vec<FilterSpec>,
+}
+
+impl UpscaleSettings {
+    pub fn filters(&self, stage: FilterStage) -> &[FilterSpec] {
+        match stage {
+            FilterStage::Pre => &self.pre,
+            FilterStage::Post => &self.post,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -54,6 +71,8 @@ pub struct Toolkit<'a> {
     pub engine: &'a dyn Engine,
     pub images: &'a dyn ImageIo,
     pub video: Option<&'a dyn VideoIo>,
+    /// Filters `UpscaleSettings::pre` and `post` refer to.
+    pub filters: &'a [Arc<dyn Filter>],
 }
 
 /// Runs `job` to completion inside a private directory under `work_root`.
@@ -103,6 +122,14 @@ fn find_model(engine: &dyn Engine, id: &str) -> Result<ModelInfo> {
         .into_iter()
         .find(|m| m.id == id)
         .ok_or_else(|| Error::ModelNotFound { engine: engine.info().id, model: id.to_string() })
+}
+
+impl JobRun<'_> {
+    /// Starts the job's filters for `stage`; empty when none are configured.
+    fn filters(&self, stage: FilterStage) -> Result<Runner> {
+        let specs = self.job.settings.filters(stage);
+        Runner::start(specs, self.toolkit.filters, FilterSetup { stage, kind: self.job.kind })
+    }
 }
 
 struct JobRun<'a> {

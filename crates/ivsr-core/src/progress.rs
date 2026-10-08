@@ -10,6 +10,8 @@ pub enum Stage {
     Preparing,
     Decoding,
     Upscaling,
+    /// Running pre- or post-processing filters.
+    Filtering,
     Encoding,
     Finalizing,
 }
@@ -20,6 +22,7 @@ impl Stage {
             Stage::Preparing => "preparing",
             Stage::Decoding => "decoding",
             Stage::Upscaling => "upscaling",
+            Stage::Filtering => "filtering",
             Stage::Encoding => "encoding",
             Stage::Finalizing => "finalizing",
         }

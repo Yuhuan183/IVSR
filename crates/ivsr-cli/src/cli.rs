@@ -13,6 +13,9 @@ Examples:
   ivsr photo.jpg                       upscale x4 next to the input (photo_x4.jpg)
   ivsr -s 2 -f webp shots/ -o out/     every image in shots/, x2, as WebP into out/
   ivsr clip.mp4 --codec h265 --crf 20  upscale a video, re-encode as HEVC
+  ivsr --post icon.png                 upscale, then restore tone and sharpness
+  ivsr filters                         pre- and post-processing filters and their order
+  ivsr filters apply out/icon_x4.png   filter an image without upscaling it
   ivsr engines install realesrgan      download the Real-ESRGAN runtime
   ivsr engines show realesrgan         models and engine parameters (-p KEY=VALUE)";
 
@@ -94,6 +97,12 @@ pub enum Command {
     #[command(visible_alias = "up")]
     Upscale(Box<UpscaleArgs>),
 
+    /// List, inspect and apply pre- and post-processing filters.
+    Filters {
+        #[command(subcommand)]
+        action: Option<FiltersAction>,
+    },
+
     /// List, inspect and install super-resolution engines.
     Engines {
         #[command(subcommand)]
@@ -154,6 +163,87 @@ pub enum EnginesAction {
         #[arg(long)]
         force: bool,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum FiltersAction {
+    /// List filters and the configured chains (default).
+    List,
+    /// Show a filter's parameters.
+    Show { filter: String },
+    /// Apply filters to images without upscaling them.
+    Apply(Box<FilterApplyArgs>),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum StageArg {
+    Pre,
+    Post,
+}
+
+impl From<StageArg> for ivsr_core::FilterStage {
+    fn from(stage: StageArg) -> Self {
+        match stage {
+            StageArg::Pre => ivsr_core::FilterStage::Pre,
+            StageArg::Post => ivsr_core::FilterStage::Post,
+        }
+    }
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct FilterApplyArgs {
+    /// Images, or directories containing them.
+    #[arg(required = true, value_name = "INPUT")]
+    pub inputs: Vec<PathBuf>,
+
+    /// Output file (single input) or directory. Default: next to each input.
+    #[arg(short, long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
+
+    /// Which filters to apply: pre (before super-resolution) or post (after it, with the original as reference).
+    #[arg(long, value_enum, default_value = "post")]
+    pub stage: StageArg,
+
+    /// Filters in order, e.g. tone-restore,detail-sharpen. Default: the configured chain.
+    #[arg(long, value_name = "IDS")]
+    pub steps: Option<String>,
+
+    /// Filter parameter, repeatable (e.g. -F detail-sharpen.amount=1.4).
+    #[arg(short = 'F', long = "filter-param", value_name = "ID.KEY=VALUE")]
+    pub filter_params: Vec<String>,
+
+    /// Image the inputs were upscaled from, or a directory of originals matched by file name.
+    /// Default: the original recorded in the history.
+    #[arg(long, value_name = "PATH")]
+    pub reference: Option<PathBuf>,
+
+    /// Image output format (png, jpg, webp, ...) or `same`.
+    #[arg(short, long, value_name = "FORMAT")]
+    pub format: Option<String>,
+
+    /// Quality for lossy image formats, 1-100.
+    #[arg(short, long, value_name = "1-100", value_parser = clap::value_parser!(u8).range(1..=100))]
+    pub quality: Option<u8>,
+
+    /// Search directories recursively, mirroring their structure in --output.
+    #[arg(short, long)]
+    pub recursive: bool,
+
+    /// File name suffix. Default: _post (or _pre).
+    #[arg(long, value_name = "SUFFIX")]
+    pub suffix: Option<String>,
+
+    /// Replace existing output files (default: pick a free name).
+    #[arg(long, conflicts_with = "skip_existing")]
+    pub overwrite: bool,
+
+    /// Skip inputs whose output file already exists.
+    #[arg(long)]
+    pub skip_existing: bool,
+
+    /// Show what would be done without processing anything.
+    #[arg(short = 'n', long)]
+    pub dry_run: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -333,6 +423,26 @@ pub struct UpscaleArgs {
     /// Frames upscaled per engine run; higher is faster but uses more temporary disk.
     #[arg(long, value_name = "N", help_heading = "Video")]
     pub batch_frames: Option<u32>,
+
+    /// Pre-process sources before upscaling. Alone: the configured steps; --pre=a,b sets them in order.
+    #[arg(long, value_name = "IDS", num_args = 0..=1, require_equals = true, default_missing_value = "", help_heading = "Filters")]
+    pub pre: Option<String>,
+
+    /// Post-process results (tone, sharpness...). Alone: the configured steps; --post=a,b sets them in order.
+    #[arg(long, value_name = "IDS", num_args = 0..=1, require_equals = true, default_missing_value = "", help_heading = "Filters")]
+    pub post: Option<String>,
+
+    /// Turn pre-processing off for this run.
+    #[arg(long, conflicts_with = "pre", help_heading = "Filters")]
+    pub no_pre: bool,
+
+    /// Turn post-processing off for this run.
+    #[arg(long, conflicts_with = "post", help_heading = "Filters")]
+    pub no_post: bool,
+
+    /// Filter parameter, repeatable (e.g. -F detail-sharpen.amount=1.4). See `ivsr filters show <id>`.
+    #[arg(short = 'F', long = "filter-param", value_name = "ID.KEY=VALUE", help_heading = "Filters")]
+    pub filter_params: Vec<String>,
 
     /// Show what would be done without processing anything.
     #[arg(short = 'n', long)]

@@ -5,13 +5,14 @@ use std::time::{Duration, Instant};
 
 use console::style;
 use ivsr_core::scale::format_scale;
-use ivsr_core::{AudioMode, CancelToken, LogLevel, ParamValues, Progress, Reporter, Stage};
+use ivsr_core::{AudioMode, CancelToken, FilterStage, LogLevel, ParamValues, Progress, Reporter, Stage, UpscaleSettings};
 use ivsr_service::throttle::Throttled;
 use ivsr_service::{ConflictPolicy, Flavor, JobRequest, Prepared, Service, VERSION};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use serde_json::json;
 
 use super::CmdResult;
+use super::filters::{chain_for_run, parse_params, stage_name, steps_text};
 use crate::cli::{AudioArg, UpscaleArgs};
 use crate::tr;
 use crate::ui::{self, Ui};
@@ -150,6 +151,13 @@ fn build_request(service: &Service, args: &UpscaleArgs) -> Result<JobRequest, Bo
     let engine_id = args.engine.clone().unwrap_or_else(|| service.config().engine.clone());
     let engine = service.registry().engine(&engine_id)?;
     let params = ParamValues::parse_pairs(&engine.params(), &args.params)?;
+    let filter_params = parse_params(service, &args.filter_params)?;
+    let mut applied = std::collections::HashSet::new();
+    let pre = chain_for_run(service, FilterStage::Pre, args.pre.as_deref(), args.no_pre, &filter_params, &mut applied);
+    let post = chain_for_run(service, FilterStage::Post, args.post.as_deref(), args.no_post, &filter_params, &mut applied);
+    if let Some(p) = filter_params.iter().find(|p| !applied.contains(&p.id)) {
+        return Err(tr!("filters.not_in_chain", id = p.id).into());
+    }
     Ok(JobRequest {
         engine: Some(engine_id),
         model: args.model.clone(),
@@ -178,7 +186,18 @@ fn build_request(service: &Service, args: &UpscaleArgs) -> Result<JobRequest, Bo
             None
         },
         recursive: args.recursive,
+        pre,
+        post,
     })
+}
+
+/// ` · post: a → b` for each stage that runs filters.
+fn filters_text(settings: &UpscaleSettings) -> String {
+    [(FilterStage::Pre, &settings.pre), (FilterStage::Post, &settings.post)]
+        .into_iter()
+        .filter(|(_, specs)| !specs.is_empty())
+        .map(|(stage, specs)| format!(" · {}: {}", stage_name(stage), steps_text(specs.iter().map(|s| s.id.as_str()))))
+        .collect()
 }
 
 fn announce(service: &Service, prepared: &Prepared, ui: &Ui) {
@@ -188,12 +207,13 @@ fn announce(service: &Service, prepared: &Prepared, ui: &Ui) {
     let engine = service.registry().engine(&prepared.engine).map(|e| e.info().name).unwrap_or_default();
     let count = prepared.jobs.iter().filter(|j| j.skip.is_none()).count();
     eprintln!(
-        "{} {} · {} · x{} · {}",
+        "{} {} · {} · x{} · {}{}",
         style("IVSR").bold(),
         engine,
         prepared.settings.model,
         format_scale(prepared.settings.scale),
-        tr!("upscale.files", count = count)
+        tr!("upscale.files", count = count),
+        filters_text(&prepared.settings)
     );
 }
 
@@ -214,11 +234,12 @@ fn show_plan(prepared: &Prepared, ui: &Ui) {
         })
         .collect();
     ui.heading(&format!(
-        "{} · {} · {} · x{}",
+        "{} · {} · {} · x{}{}",
         tr!("upscale.plan"),
         prepared.engine,
         prepared.settings.model,
-        format_scale(prepared.settings.scale)
+        format_scale(prepared.settings.scale),
+        filters_text(&prepared.settings)
     ));
     ui::table(&[tr!("upscale.col_input"), tr!("upscale.col_output")], &rows);
 }
@@ -247,7 +268,7 @@ impl Reporter for BarReporter {
     fn progress(&self, p: Progress) {
         self.bar.set_position((p.overall * 1000.0) as u64);
         let units = match (p.stage, p.units) {
-            (Stage::Upscaling | Stage::Encoding, Some((done, total))) => format!(" {done}/{total}"),
+            (Stage::Upscaling | Stage::Filtering | Stage::Encoding, Some((done, total))) => format!(" {done}/{total}"),
             _ => String::new(),
         };
         self.bar.set_message(format!("{}{units}", stage_text(p.stage)));
@@ -307,6 +328,7 @@ fn stage_text(stage: Stage) -> &'static str {
         Stage::Preparing => tr!("stage.preparing"),
         Stage::Decoding => tr!("stage.decoding"),
         Stage::Upscaling => tr!("stage.upscaling"),
+        Stage::Filtering => tr!("stage.filtering"),
         Stage::Encoding => tr!("stage.encoding"),
         Stage::Finalizing => tr!("stage.finalizing"),
     }

@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use ivsr_core::{CodecInfo, Engine, FormatInfo, ImageIo, MediaKind, VideoIo};
+use ivsr_core::{CodecInfo, Engine, Filter, FilterStage, FilterStep, FormatInfo, ImageIo, MediaKind, VideoIo};
 use ivsr_engine_realesrgan::{RealEsrgan, RealEsrganConfig};
 use ivsr_media::{Ffmpeg, FfmpegConfig, RasterIo};
 
@@ -15,6 +15,7 @@ pub struct Registry {
     engines: Vec<Arc<dyn Engine>>,
     images: Arc<dyn ImageIo>,
     video: Arc<dyn VideoIo>,
+    filters: Vec<Arc<dyn Filter>>,
 }
 
 /// Every engine compiled into this build. Adding an engine means adding a line here.
@@ -36,7 +37,7 @@ impl Registry {
     }
 
     pub fn new(engines: Vec<Arc<dyn Engine>>, images: Arc<dyn ImageIo>, video: Arc<dyn VideoIo>) -> Self {
-        Self { engines, images, video }
+        Self { engines, images, video, filters: ivsr_filters::builtin() }
     }
 
     pub fn engines(&self) -> &[Arc<dyn Engine>] {
@@ -53,6 +54,15 @@ impl Registry {
 
     pub fn video(&self) -> &Arc<dyn VideoIo> {
         &self.video
+    }
+
+    pub fn filters(&self) -> &[Arc<dyn Filter>] {
+        &self.filters
+    }
+
+    /// Steps a stage runs when the configuration does not list its own.
+    pub fn default_filter_steps(&self, stage: FilterStage) -> Vec<FilterStep> {
+        ivsr_filters::default_steps(stage)
     }
 
     pub fn formats(&self) -> Vec<FormatInfo> {

@@ -2,17 +2,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::IoContext;
+use crate::filter::Runner;
 use crate::media::EncoderSetup;
-use crate::{Error, JobOutcome, LogLevel, Result, Stage, TaskContext, TaskMode, UpscaleTask, fsutil};
+use crate::{
+    Error, FilterStage, Frame, ImageEncodeOptions, ImageIo, JobOutcome, LogLevel, Result, Stage, TaskContext, TaskMode,
+    UpscaleTask, fsutil,
+};
 
 use super::JobRun;
 
 const DECODE: (f64, f64) = (0.0, 0.08);
 const UPSCALE: (f64, f64) = (0.08, 0.97);
 
-/// Frames are extracted once at source resolution, then upscaled in batches
-/// whose results stream straight into a running encoder and are deleted, so
-/// only one batch of large frames ever sits on disk.
+/// Frames are extracted once at source resolution, then processed in batches:
+/// pre-processing rewrites the source frames, the engine upscales them, and
+/// post-processing (with each source frame as its reference) rewrites the
+/// results, which stream straight into a running encoder and are deleted
+/// together with their sources. Only one batch of frames is ever on disk.
 pub(super) fn run(run: &JobRun<'_>) -> Result<JobOutcome> {
     let JobRun { toolkit, job, plan, work, tracker, cancel } = run;
     let video = toolkit
@@ -24,10 +30,13 @@ pub(super) fn run(run: &JobRun<'_>) -> Result<JobOutcome> {
     let engine = toolkit.engine;
     let caps = engine.caps();
     let settings = &job.settings;
+    let mut pre = run.filters(FilterStage::Pre)?;
+    let mut post = run.filters(FilterStage::Post)?;
 
     let info = video.probe(&job.input)?;
-    let frame_size = (info.width * plan.native, info.height * plan.native);
     let output_size = even(plan.output_size(info.width, info.height));
+    // Post-processing resamples to the final size itself, so the encoder must not.
+    let frame_size = if post.is_empty() { (info.width * plan.native, info.height * plan.native) } else { output_size };
 
     // Decode every frame at source resolution.
     let frames_dir = work.join("frames");
@@ -54,24 +63,54 @@ pub(super) fn run(run: &JobRun<'_>) -> Result<JobOutcome> {
         options: &settings.video,
     })?;
 
+    // Share of a batch's progress before the engine starts and after it ends.
+    let pre_share = if pre.is_empty() { 0.0 } else { 0.05 };
+    let post_share = if post.is_empty() { 0.0 } else { 0.15 };
     let batch_in = work.join("batch-in");
     let batch_out = work.join("batch-out");
     let batch = if caps.batch { settings.batch_frames.max(1) as usize } else { 1 };
+    let images = toolkit.images;
     let mut done = 0u64;
+    // Each phase of a batch counts its frames from the batch start; the
+    // reported count only ever rises, so it reads as frames through the chain.
+    let shown = std::cell::Cell::new(0u64);
     tracker.span(Stage::Upscaling, UPSCALE, 0.0, Some((0, total)));
     for chunk in frames.chunks(batch) {
         cancel.check()?;
         let base = done;
         let n = chunk.len() as u64;
+        // `within` is the fraction of this batch completed; `units` frames done in `stage`.
+        let report = |stage: Stage, within: f64, units: u64| {
+            let overall = (base as f64 + within.clamp(0.0, 1.0) * n as f64) / total as f64;
+            shown.set(shown.get().max(units));
+            tracker.span(stage, UPSCALE, overall, Some((shown.get(), total)));
+        };
+
+        if !pre.is_empty() {
+            for (i, frame) in chunk.iter().enumerate() {
+                cancel.check()?;
+                rewrite(images, frame, None, &mut pre, None)?;
+                report(Stage::Filtering, pre_share * (i + 1) as f64 / n as f64, base + i as u64 + 1);
+            }
+        }
+
         let progress = |f: f64| {
-            let units = base + (f.clamp(0.0, 1.0) * n as f64) as u64;
-            tracker.span(Stage::Upscaling, UPSCALE, units as f64 / total as f64, Some((units, total)));
+            let f = f.clamp(0.0, 1.0);
+            report(Stage::Upscaling, pre_share + (1.0 - pre_share - post_share) * f, base + (f * n as f64) as u64);
         };
         let ctx = TaskContext { cancel, progress: &progress, log: &log };
         let upscaled = upscale_chunk(run, chunk, &batch_in, &batch_out, &caps.output_format, &ctx)?;
-        for frame in &upscaled {
+
+        for (i, (source, frame)) in upscaled.iter().enumerate() {
+            if !post.is_empty() {
+                cancel.check()?;
+                let reference = images.decode(source, None)?;
+                rewrite(images, frame, Some(output_size), &mut post, Some(&reference))?;
+                report(Stage::Filtering, 1.0 - post_share + post_share * (i + 1) as f64 / n as f64, base + i as u64 + 1);
+            }
             encoder.push_frame(frame)?;
             fs::remove_file(frame).at("remove", frame)?;
+            fs::remove_file(source).at("remove", source)?;
         }
         done += n;
         tracker.span(Stage::Upscaling, UPSCALE, done as f64 / total as f64, Some((done, total)));
@@ -91,7 +130,23 @@ pub(super) fn run(run: &JobRun<'_>) -> Result<JobOutcome> {
     })
 }
 
-/// Upscales `chunk` and returns the produced frames in order.
+/// Runs `filters` on the frame at `path` (resampled to `size`) and rewrites
+/// it in place, in the format its extension names.
+fn rewrite(
+    images: &dyn ImageIo,
+    path: &Path,
+    size: Option<(u32, u32)>,
+    filters: &mut Runner,
+    reference: Option<&Frame>,
+) -> Result<()> {
+    let mut frame = images.decode(path, size)?;
+    filters.apply(&mut frame, reference)?;
+    let format = fsutil::extension(path).unwrap_or_else(|| "png".into());
+    images.encode(&frame, path, &ImageEncodeOptions::lossless(&format))
+}
+
+/// Upscales `chunk` and returns `(source, upscaled)` frame pairs in order.
+/// Sources are kept so post-processing can use them; the caller deletes both.
 fn upscale_chunk(
     run: &JobRun<'_>,
     chunk: &[PathBuf],
@@ -99,7 +154,7 @@ fn upscale_chunk(
     batch_out: &Path,
     out_ext: &str,
     ctx: &TaskContext<'_>,
-) -> Result<Vec<PathBuf>> {
+) -> Result<Vec<(PathBuf, PathBuf)>> {
     let settings = &run.job.settings;
     let engine = run.toolkit.engine;
     let out_name = |p: &Path| {
@@ -119,8 +174,7 @@ fn upscale_chunk(
             params: &settings.params,
         };
         engine.upscale(&task, ctx)?;
-        fs::remove_file(frame).at("remove", frame)?;
-        return Ok(vec![output]);
+        return Ok(vec![(frame.clone(), output)]);
     }
 
     for dir in [batch_in, batch_out] {
@@ -129,9 +183,11 @@ fn upscale_chunk(
         }
         fs::create_dir_all(dir).at("create directory", dir)?;
     }
+    let mut sources = Vec::with_capacity(chunk.len());
     for frame in chunk {
         let target = batch_in.join(frame.file_name().unwrap_or_default());
         fs::rename(frame, &target).at("move", frame)?;
+        sources.push(target);
     }
     let task = UpscaleTask {
         input: batch_in,
@@ -142,12 +198,11 @@ fn upscale_chunk(
         params: &settings.params,
     };
     engine.upscale(&task, ctx)?;
-    let outputs: Vec<PathBuf> = chunk.iter().map(|f| out_name(f)).collect();
+    let outputs: Vec<PathBuf> = sources.iter().map(|f| out_name(f)).collect();
     if let Some(missing) = outputs.iter().find(|p| !p.exists()) {
         return Err(Error::tool(engine.info().id, format!("engine produced no output for {}", missing.display())));
     }
-    fs::remove_dir_all(batch_in).at("clear", batch_in)?;
-    Ok(outputs)
+    Ok(sources.into_iter().zip(outputs).collect())
 }
 
 fn sorted_files(dir: &Path) -> Result<Vec<PathBuf>> {

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/ivsr-core",
     "crates/ivsr-engine-realesrgan",
+    "crates/ivsr-filters",
     "crates/ivsr-media",
     "crates/ivsr-update",
     "crates/ivsr-service",
@@ -12,6 +13,7 @@ members = [
 default-members = [
     "crates/ivsr-core",
     "crates/ivsr-engine-realesrgan",
+    "crates/ivsr-filters",
     "crates/ivsr-media",
     "crates/ivsr-update",
     "crates/ivsr-service",
@@ -28,6 +30,7 @@ repository = "https://github.com/Yuhuan183/IVSR"
 [workspace.dependencies]
 ivsr-core = { path = "crates/ivsr-core" }
 ivsr-engine-realesrgan = { path = "crates/ivsr-engine-realesrgan" }
+ivsr-filters = { path = "crates/ivsr-filters" }
 ivsr-media = { path = "crates/ivsr-media" }
 ivsr-update = { path = "crates/ivsr-update" }
 ivsr-service = { path = "crates/ivsr-service" }
@@ -46,3 +49,26 @@ lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Pixel loops and image codecs are an order of magnitude slower unoptimised;
+# keep `tauri dev` and tests usable when filtering video frames and previews.
+[profile.dev.package.ivsr-filters]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.simd-adler32]
+opt-level = 3
+[profile.dev.package.fast_image_resize]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3

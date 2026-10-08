@@ -62,6 +62,7 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
         Some(Command::Engines { action }) => cmd::engines::run(&service, action, &ui),
+        Some(Command::Filters { action }) => cmd::filters::run(&service, action, &ui),
         Some(Command::Models { engine, action }) => cmd::models::run(&service, engine, action, &ui),
         Some(Command::System) => cmd::system::run(&service, &ui),
         Some(Command::Formats) => cmd::info::formats(&service, &ui),

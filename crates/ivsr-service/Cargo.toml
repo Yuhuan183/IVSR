@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 ivsr-core.workspace = true
 ivsr-engine-realesrgan.workspace = true
+ivsr-filters.workspace = true
 ivsr-media.workspace = true
 ivsr-update.workspace = true
 serde.workspace = true

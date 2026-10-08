@@ -2233,6 +2233,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -2261,6 +2262,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ivsr-filters"
+version = "0.1.0"
+dependencies = [
+ "ivsr-core",
+ "rayon",
+]
+
+[[package]]
 name = "ivsr-media"
 version = "0.1.0"
 dependencies = [
@@ -2281,6 +2290,7 @@ dependencies = [
  "image",
  "ivsr-core",
  "ivsr-engine-realesrgan",
+ "ivsr-filters",
  "ivsr-media",
  "ivsr-update",
  "semver",

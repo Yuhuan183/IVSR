@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ivsr_core::scale::{format_scale, plan_scale};
-use ivsr_core::{AudioMode, CodecInfo, Engine, ParamValue, ParamValues, UpscaleSettings, VideoEncodeOptions};
+use ivsr_core::{
+    AudioMode, CodecInfo, Engine, FilterChain, FilterSpec, FilterStage, ParamValue, ParamValues, UpscaleSettings,
+    VideoEncodeOptions,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, ConflictPolicy};
@@ -33,6 +36,10 @@ pub struct JobRequest {
     pub suffix: Option<String>,
     pub conflict: Option<ConflictPolicy>,
     pub recursive: bool,
+    /// Pre-processing chain; `None` uses the configured one.
+    pub pre: Option<FilterChain>,
+    /// Post-processing chain; `None` uses the configured one.
+    pub post: Option<FilterChain>,
 }
 
 /// A request with defaults applied and every value validated.
@@ -101,6 +108,13 @@ pub(crate) fn resolve(req: &JobRequest, config: &Config, registry: &Registry) ->
         return Err(Error::Input(format!("suffix must not contain path separators: `{suffix}`")));
     }
 
+    let filters = |stage: FilterStage, requested: &Option<FilterChain>| {
+        let chain = requested.as_ref().unwrap_or_else(|| config.filters.chain(stage));
+        resolve_chain(stage, chain, registry)
+    };
+    let pre = filters(FilterStage::Pre, &req.pre)?;
+    let post = filters(FilterStage::Post, &req.post)?;
+
     Ok(Resolved {
         settings: UpscaleSettings {
             model: model.id.clone(),
@@ -110,6 +124,8 @@ pub(crate) fn resolve(req: &JobRequest, config: &Config, registry: &Registry) ->
             image_quality: Some(image_quality),
             video,
             batch_frames: req.batch_frames.unwrap_or(config.video.batch_frames).max(1),
+            pre,
+            post,
         },
         engine,
         image_format,
@@ -120,6 +136,15 @@ pub(crate) fn resolve(req: &JobRequest, config: &Config, registry: &Registry) ->
         conflict: req.conflict.unwrap_or(config.output.conflict),
         recursive: req.recursive,
     })
+}
+
+/// The steps `chain` runs, validated; empty when its switch is off.
+pub(crate) fn resolve_chain(stage: FilterStage, chain: &FilterChain, registry: &Registry) -> Result<Vec<FilterSpec>> {
+    if !chain.enabled {
+        return Ok(Vec::new());
+    }
+    let steps = chain.steps.clone().unwrap_or_else(|| registry.default_filter_steps(stage));
+    Ok(ivsr_core::filter::resolve(stage, &steps, registry.filters())?)
 }
 
 /// Checks video options against the codec catalogue before any work starts.
