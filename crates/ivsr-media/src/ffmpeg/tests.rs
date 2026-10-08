@@ -131,13 +131,15 @@ fn h264_into_webm_is_rejected_before_spawning() {
 /// ffmpeg before 5.1 (Ubuntu 22.04 ships 4.4) has no `-fps_mode`; frame
 /// extraction must fall back to `-vsync`. Simulated by a wrapper that
 /// rejects `-fps_mode` the way those versions do, and hands `-vsync` to the
-/// real ffmpeg as `-fps_mode` (ffmpeg 8+ removed `-vsync`).
+/// real ffmpeg as whichever option it understands (8+ removed `-vsync`).
 #[cfg(unix)]
 #[test]
 fn extraction_works_with_ffmpeg_older_than_5_1() {
     use std::os::unix::fs::PermissionsExt;
     let Some(real) = toolchain() else { return };
     let real_ffmpeg = real.ffmpeg().unwrap();
+    let help = Command::new(&real_ffmpeg).args(["-hide_banner", "-h", "full"]).output().unwrap();
+    let sync = if String::from_utf8_lossy(&help.stdout).contains("-fps_mode") { "-fps_mode" } else { "-vsync" };
     let tmp = tempfile::tempdir().unwrap();
     let wrapper = tmp.path().join("ffmpeg");
     let script = format!(
@@ -147,7 +149,7 @@ for a in "$@"; do
 done
 n=$#
 for a in "$@"; do
-  if [ "$a" = -vsync ]; then set -- "$@" -fps_mode; else set -- "$@" "$a"; fi
+  if [ "$a" = -vsync ]; then set -- "$@" {sync}; else set -- "$@" "$a"; fi
 done
 shift $n
 exec '{}' "$@"
