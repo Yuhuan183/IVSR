@@ -184,16 +184,14 @@ fn show(service: &Service, engine: &str, id: &str, ui: &Ui) -> CmdResult {
     if let Some(h) = &homepage {
         println!("  {}", style(h).dim());
     }
-    if let (Some(l), Some(a), Some(h)) = (&license, &author, &homepage) {
-        if l.starts_with("CC-BY") {
+    if let (Some(l), Some(a), Some(h)) = (&license, &author, &homepage)
+        && l.starts_with("CC-BY") {
             println!("  {}", style(tr!("models.attribution", author = a, homepage = h)).yellow());
         }
-    }
-    if let Some(v) = info.as_ref().and_then(|i| i.version.clone()).or_else(|| manifest.as_ref().map(|m| m.version.clone())) {
-        if !v.is_empty() {
+    if let Some(v) = info.as_ref().and_then(|i| i.version.clone()).or_else(|| manifest.as_ref().map(|m| m.version.clone()))
+        && !v.is_empty() {
             println!("  {}", tr!("models.version", version = v));
         }
-    }
     if let Some(src) = &entry.source {
         println!("  {}", tr!("models.source", source = src));
     }

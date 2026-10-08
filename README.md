@@ -6,9 +6,9 @@
 
 ## 需求
 
-- Rust 1.85+
+- Rust 1.88+
 - ffmpeg / ffprobe 在 `PATH` 上 (只有處理影片時需要)
-- 桌面版另需 Node 22+ 與 pnpm
+- 桌面版另需 Rust 1.90+、Node 22+ 與 pnpm
 
 ## 建置
 

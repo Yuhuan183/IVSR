@@ -3,7 +3,8 @@ name = "ivsr-desktop"
 description = "ivsr desktop app"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
+# Tauri 2.12 plugins need a newer toolchain than the CLI crates.
+rust-version = "1.90"
 publish.workspace = true
 
 [lib]

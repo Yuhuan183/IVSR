@@ -153,19 +153,17 @@ pub(crate) fn validate_video(video: &VideoEncodeOptions, codec: Option<&CodecInf
     if !codec.available {
         return Err(Error::Input(format!("{} encoder is not available in the installed ffmpeg", codec.label)));
     }
-    if let (Some(q), Some(range)) = (video.quality, &codec.quality) {
-        if !(range.min..=range.max).contains(&q) {
+    if let (Some(q), Some(range)) = (video.quality, &codec.quality)
+        && !(range.min..=range.max).contains(&q) {
             return Err(Error::Input(format!("{} {} must be {}-{}, got {q}", codec.label, range.label, range.min, range.max)));
         }
-    }
-    if let Some(preset) = &video.preset {
-        if !codec.presets.contains(preset) {
+    if let Some(preset) = &video.preset
+        && !codec.presets.contains(preset) {
             return Err(Error::Input(format!(
                 "{} has no preset `{preset}`{}",
                 codec.label,
                 if codec.presets.is_empty() { String::new() } else { format!(" (use one of: {})", codec.presets.join(", ")) }
             )));
         }
-    }
     Ok(())
 }

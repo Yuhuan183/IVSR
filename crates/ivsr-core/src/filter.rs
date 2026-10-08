@@ -215,7 +215,7 @@ mod tests {
     impl FilterRun for BrightenRun {
         fn apply(&mut self, frame: &mut Frame, _: Option<&Frame>) -> Result<()> {
             self.seen += 1;
-            for px in frame.pixels.chunks_exact_mut(4) {
+            for px in frame.pixels.as_chunks_mut::<4>().0 {
                 px[0] = px[0].saturating_add(self.amount) + (self.seen as u8 - 1);
             }
             Ok(())

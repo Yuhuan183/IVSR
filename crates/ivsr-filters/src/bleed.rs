@@ -84,12 +84,12 @@ pub fn bleed(frame: &mut Frame, threshold: u8, distance: u32) {
         return;
     }
     let (w, h) = (frame.width as usize, frame.height as usize);
-    let mut known: Vec<bool> = frame.pixels.chunks_exact(4).map(|p| p[3] > threshold).collect();
+    let mut known: Vec<bool> = frame.pixels.as_chunks::<4>().0.iter().map(|p| p[3] > threshold).collect();
     if known.iter().all(|k| *k) || !known.iter().any(|k| *k) {
         return;
     }
-    let mut colour: Vec<[f32; 3]> = frame.pixels.chunks_exact(4).map(|p| [p[0], p[1], p[2]].map(f32::from)).collect();
-    let visible: Vec<bool> = frame.pixels.chunks_exact(4).map(|p| p[3] > 0).collect();
+    let mut colour: Vec<[f32; 3]> = frame.pixels.as_chunks::<4>().0.iter().map(|p| [p[0], p[1], p[2]].map(f32::from)).collect();
+    let visible: Vec<bool> = frame.pixels.as_chunks::<4>().0.iter().map(|p| p[3] > 0).collect();
     for _ in 0..distance.div_ceil(2) {
         let near = dilate_square5(&known, w, h);
         let frontier: Vec<usize> = (0..w * h).into_par_iter().filter(|&i| near[i] && !known[i]).collect();

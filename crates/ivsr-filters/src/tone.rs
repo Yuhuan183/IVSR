@@ -232,7 +232,7 @@ mod tests {
     /// Greys from `lo` to `hi` across the width.
     fn ramp(lo: f32, hi: f32, has_alpha: bool) -> Frame {
         let mut f = Frame::filled(64, 4, [0, 0, 0, 255], has_alpha);
-        for (i, px) in f.pixels.chunks_exact_mut(4).enumerate() {
+        for (i, px) in f.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let v = (lo + (hi - lo) * (i % 64) as f32 / 63.0).round() as u8;
             px[..3].copy_from_slice(&[v, v, v]);
         }

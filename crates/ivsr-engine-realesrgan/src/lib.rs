@@ -51,11 +51,10 @@ impl RealEsrgan {
                 Err(format!("configured binary {} does not exist", path.display()))
             };
         }
-        if let Some(dir) = &self.config.install_dir {
-            if let Some(found) = find_in(dir) {
+        if let Some(dir) = &self.config.install_dir
+            && let Some(found) = find_in(dir) {
                 return Ok(found);
             }
-        }
         which::which(BINARY).map_err(|_| {
             format!("{TOOL} not found; run `ivsr engines install {ENGINE_ID}` or set engines.{ENGINE_ID}.path")
         })
@@ -146,11 +145,10 @@ impl Engine for RealEsrgan {
         };
         let bundled = self.bundled_dir(&binary);
         let store_has_models = self.config.store_dir.as_ref().is_some_and(|s| !models::scan_store(s).is_empty());
-        if let Err(reason) = check_models_dir(&bundled) {
-            if !store_has_models {
+        if let Err(reason) = check_models_dir(&bundled)
+            && !store_has_models {
                 return ToolStatus::Broken { reason };
             }
-        }
         if self.located().is_empty() {
             return ToolStatus::Broken { reason: format!("no model weights in {}", bundled.display()) };
         }

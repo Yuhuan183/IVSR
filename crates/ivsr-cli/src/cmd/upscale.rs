@@ -132,11 +132,10 @@ pub fn run(service: Service, args: &UpscaleArgs, ui: &Ui) -> CmdResult {
         }
         eprintln!("{}", tr!("upscale.summary", parts = parts.join(", "), elapsed = ui::human_duration(elapsed)));
     }
-    if !ui.json {
-        if let Some(version) = service.updates(Flavor::Cli, VERSION).known_update() {
+    if !ui.json
+        && let Some(version) = service.updates(Flavor::Cli, VERSION).known_update() {
             ui.hint(&tr!("upscale.update_hint", version = version, current = VERSION));
         }
-    }
 
     Ok(if cancelled {
         ExitCode::from(130)

@@ -97,14 +97,14 @@ impl FilterRun for SharpenRun {
         // pixels keep their own colours, so every sharpened pixel is measured
         // against what it shows.
         let mut source = Cow::Borrowed(&*frame);
-        if frame.has_alpha && frame.pixels.chunks_exact(4).any(|p| p[3] == 0) {
+        if frame.has_alpha && frame.pixels.as_chunks::<4>().0.iter().any(|p| p[3] == 0) {
             bleed(source.to_mut(), 0, DEFAULT_DISTANCE);
         }
         let lightness = Plane::new(w, h, source.pixels.par_chunks_exact(4).map(|p| to_lab([p[0], p[1], p[2]])[0]).collect());
         let fine = lightness.gaussian(FINE_SIGMA);
         let mid = lightness.gaussian(MID_SIGMA);
         let weight = frame.has_alpha.then(|| {
-            let solid: Vec<bool> = frame.pixels.chunks_exact(4).map(|p| p[3] > INTERIOR_ALPHA).collect();
+            let solid: Vec<bool> = frame.pixels.as_chunks::<4>().0.iter().map(|p| p[3] > INTERIOR_ALPHA).collect();
             let interior = erode_ellipse5(&solid, w, h).into_iter().map(|v| if v { 1.0 } else { 0.0 }).collect();
             Plane::new(w, h, interior).gaussian(EDGE_SIGMA)
         });
@@ -145,7 +145,7 @@ mod tests {
     /// A soft vertical edge from dark to light grey.
     fn soft_edge(has_alpha: bool) -> Frame {
         let mut f = Frame::filled(32, 8, [0, 0, 0, 255], has_alpha);
-        for (i, px) in f.pixels.chunks_exact_mut(4).enumerate() {
+        for (i, px) in f.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let x = (i % 32) as f32;
             let v = (60.0 + 120.0 / (1.0 + (-(x - 16.0) / 1.5).exp())).round() as u8;
             px[..3].copy_from_slice(&[v, v, v]);
@@ -172,7 +172,7 @@ mod tests {
         // (alpha > 150), so its colours must be sharpened exactly as if opaque.
         let frame = |interior_alpha: u8| {
             let mut f = soft_edge(true);
-            for (i, px) in f.pixels.chunks_exact_mut(4).enumerate() {
+            for (i, px) in f.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 if (4..28).contains(&(i % 32)) {
                     px[3] = interior_alpha;
                 } else {
@@ -199,7 +199,7 @@ mod tests {
     fn transparent_pixels_are_untouched_and_cut_out_edges_are_protected() {
         let mut f = soft_edge(true);
         // Left third fully transparent (black underneath), the rest solid.
-        for (i, px) in f.pixels.chunks_exact_mut(4).enumerate() {
+        for (i, px) in f.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             if i % 32 < 10 {
                 px.copy_from_slice(&[0, 0, 0, 0]);
             }

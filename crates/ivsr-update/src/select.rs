@@ -114,11 +114,10 @@ impl PlatformSelector {
             (false, false, _) => {}
             _ => score += 2,
         }
-        if let Some(token) = &self.require {
-            if !tokens.contains(&token.as_str()) {
+        if let Some(token) = &self.require
+            && !tokens.contains(&token.as_str()) {
                 return None;
             }
-        }
         if !self.suffixes.is_empty() {
             let rank = self.suffixes.iter().position(|s| name.ends_with(s.as_str()))?;
             score += 10 * (self.suffixes.len() - rank) as i32;

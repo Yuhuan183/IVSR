@@ -142,15 +142,14 @@ pub fn plan(inputs: &[PathBuf], opts: &PlanOptions<'_>, formats: &[FormatInfo]) 
             let stem = input.file_stem().unwrap_or_default().to_string_lossy();
             (target.id.clone(), dir.join(format!("{stem}{}.{ext}", opts.suffix)))
         };
-        if let Some(codec) = opts.video_codec.filter(|_| kind == MediaKind::Video) {
-            if !codec.containers.contains(&format) {
+        if let Some(codec) = opts.video_codec.filter(|_| kind == MediaKind::Video)
+            && !codec.containers.contains(&format) {
                 return Err(Error::Input(format!(
                     "{} cannot be stored in .{format}; choose one of: {}",
                     codec.label,
                     codec.containers.join(", ")
                 )));
             }
-        }
 
         let resolved = resolve_conflict(&input, output, opts.conflict, &claimed);
         let job = match resolved {
