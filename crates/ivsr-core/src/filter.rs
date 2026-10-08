@@ -147,22 +147,30 @@ pub fn resolve(stage: FilterStage, steps: &[FilterStep], filters: &[Arc<dyn Filt
 /// Running filters of one stage, applied in order.
 pub struct Runner {
     runs: Vec<Box<dyn FilterRun>>,
+    uses_reference: bool,
 }
 
 impl Runner {
     pub fn start(specs: &[FilterSpec], filters: &[Arc<dyn Filter>], setup: FilterSetup) -> Result<Self> {
+        let mut uses_reference = false;
         let runs = specs
             .iter()
             .map(|spec| {
                 let filter = find(filters, &spec.id).ok_or_else(|| Error::Invalid(format!("unknown filter `{}`", spec.id)))?;
+                uses_reference |= filter.info().uses_reference;
                 filter.start(&spec.params, setup)
             })
             .collect::<Result<_>>()?;
-        Ok(Self { runs })
+        Ok(Self { runs, uses_reference })
     }
 
     pub fn is_empty(&self) -> bool {
         self.runs.is_empty()
+    }
+
+    /// Whether any filter reads the reference; callers skip decoding it otherwise.
+    pub fn uses_reference(&self) -> bool {
+        self.uses_reference
     }
 
     pub fn apply(&mut self, frame: &mut Frame, reference: Option<&Frame>) -> Result<()> {

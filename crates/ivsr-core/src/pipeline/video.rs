@@ -104,8 +104,8 @@ pub(super) fn run(run: &JobRun<'_>) -> Result<JobOutcome> {
         for (i, (source, frame)) in upscaled.iter().enumerate() {
             if !post.is_empty() {
                 cancel.check()?;
-                let reference = images.decode(source, None)?;
-                rewrite(images, frame, Some(output_size), &mut post, Some(&reference))?;
+                let reference = post.uses_reference().then(|| images.decode(source, None)).transpose()?;
+                rewrite(images, frame, Some(output_size), &mut post, reference.as_ref())?;
                 report(Stage::Filtering, 1.0 - post_share + post_share * (i + 1) as f64 / n as f64, base + i as u64 + 1);
             }
             encoder.push_frame(frame)?;

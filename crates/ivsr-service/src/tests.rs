@@ -528,3 +528,31 @@ fn a_skipped_version_is_not_announced_by_automatic_checks_but_explicit_checks_st
     assert!(matches!(automatic, ivsr_update::UpdateCheck::UpToDate { .. }), "{automatic:?}");
     assert!(matches!(updates.check().unwrap(), ivsr_update::UpdateCheck::Available { .. }));
 }
+
+#[test]
+fn a_reference_directory_is_matched_by_relative_path_then_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    let (results, originals) = (tmp.path().join("results"), tmp.path().join("originals"));
+    for dir in ["a", "b"] {
+        fs::create_dir_all(results.join(dir)).unwrap();
+        fs::create_dir_all(originals.join(dir)).unwrap();
+        sample_png(&results.join(dir).join("hero.png"), 4, 4);
+        sample_png(&originals.join(dir).join("hero.png"), 2, 2);
+    }
+    sample_png(&results.join("top.png"), 4, 4);
+    sample_png(&originals.join("top.png"), 2, 2);
+    let request = FilterJobRequest {
+        reference: Some(originals.clone()),
+        recursive: true,
+        ..FilterJobRequest::new(ivsr_core::FilterStage::Post)
+    };
+
+    let prepared = svc.prepare_filters(std::slice::from_ref(&results), &request).unwrap();
+
+    for job in &prepared.jobs {
+        let rel = job.planned.input.strip_prefix(&results).unwrap();
+        assert_eq!(job.reference.as_deref(), Some(originals.join(rel).as_path()), "{}", rel.display());
+    }
+    assert_eq!(prepared.jobs.len(), 3);
+}

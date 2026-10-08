@@ -129,11 +129,12 @@ pub(crate) fn prepare(
         }
         _ => {}
     }
+    let roots: Vec<PathBuf> = inputs.iter().filter_map(|p| std::path::absolute(p).ok()).filter(|p| p.is_dir()).collect();
     let jobs = planned
         .into_iter()
         .map(|planned| {
             let reference = match &reference {
-                Some(dir) if dir.is_dir() => planned.input.file_name().map(|n| dir.join(n)).filter(|p| p.is_file()),
+                Some(dir) if dir.is_dir() => matching_original(dir, &planned.input, &roots),
                 Some(file) => Some(file.clone()),
                 None => reference_for(&planned.input),
             };
@@ -141,6 +142,14 @@ pub(crate) fn prepare(
         })
         .collect();
     Ok(PreparedFilters { stage: req.stage, steps: enabled(steps), quality, jobs })
+}
+
+/// The original for `input` in `dir`: at the same path relative to the input
+/// directory it was found under, else by file name alone.
+fn matching_original(dir: &Path, input: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    let relative = roots.iter().find_map(|root| input.strip_prefix(root).ok()).map(|rel| dir.join(rel));
+    let by_name = input.file_name().map(|n| dir.join(n));
+    relative.into_iter().chain(by_name).find(|p| p.is_file())
 }
 
 fn enabled(steps: Vec<FilterStep>) -> Vec<FilterStep> {
@@ -177,7 +186,7 @@ pub(crate) fn filter_image(
 
     let images = registry.images();
     let mut frame = images.decode(input, None)?;
-    let reference = reference.map(|p| images.decode(p, None)).transpose()?;
+    let reference = reference.filter(|_| runner.uses_reference()).map(|p| images.decode(p, None)).transpose()?;
     runner.apply(&mut frame, reference.as_ref())?;
 
     std::fs::create_dir_all(work_root).map_err(|e| ivsr_core::Error::io_at("create work directory", work_root, e))?;
@@ -189,6 +198,22 @@ pub(crate) fn filter_image(
     images.encode(&frame, &staged, &ImageEncodeOptions { format: format.id, quality, resize: None })?;
     fsutil::persist(&staged, output)?;
     Ok(FilterOutcome { output: output.to_path_buf(), width: frame.width, height: frame.height })
+}
+
+/// Previews kept on disk; parameter tweaks would otherwise add one each.
+const PREVIEWS_KEPT: usize = 24;
+
+/// Removes all but the `keep` most recently written files in `dir`.
+pub(crate) fn prune(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
+    for (_, path) in files.into_iter().skip(keep) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// A cached PNG of `input` filtered by `steps`, for previews. The cache key
@@ -214,6 +239,27 @@ pub(crate) fn preview(
     let target = dir.join(format!("{:016x}.png", hasher.finish()));
     if !target.is_file() {
         filter_image(registry, input, &target, stage, steps, reference, None, work_root)?;
+        prune(dir, PREVIEWS_KEPT);
     }
     Ok(target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pruning_keeps_the_newest_previews() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..5 {
+            let path = dir.path().join(format!("{i}.png"));
+            std::fs::write(&path, b"x").unwrap();
+            let when = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000 + i);
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(when).unwrap();
+        }
+        prune(dir.path(), 2);
+        let mut left: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["3.png", "4.png"]);
+    }
 }

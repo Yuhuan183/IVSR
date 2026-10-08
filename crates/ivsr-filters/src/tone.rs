@@ -89,7 +89,11 @@ impl FilterRun for ToneRun {
         match reference {
             Some(reference) => {
                 let (source, target) = (lightness_histogram(frame), lightness_histogram(reference));
-                let (Some(source), Some(target)) = (source, target) else { return Ok(()) };
+                let (Some(source), Some(target)) = (source, target) else {
+                    // Nothing visible to match: the next frame starts a fresh curve.
+                    self.previous = None;
+                    return Ok(());
+                };
                 let mut lut = smooth(&match_cdf(&source, &target));
                 let target = normalised(&target);
                 if let Some((prev_lut, prev_target)) = &self.previous {
@@ -134,19 +138,29 @@ fn remap(frame: &mut Frame, map: impl Fn(f32, u8) -> f32 + Sync) {
 }
 
 /// Lightness histogram (256 bins) of pixels more opaque than `MASK_ALPHA`;
-/// `None` when no pixel qualifies. Bins are computed in parallel and counted
-/// serially: a parallel fold would carry a 2 KB array through every level of
-/// rayon's recursion, which overflows worker stacks in debug builds.
+/// `None` when no pixel qualifies. Rows of pixels are counted in parallel
+/// into heap-allocated partial histograms (a 2 KB array carried through
+/// rayon's fold recursion overflows worker stacks in debug builds).
 fn lightness_histogram(frame: &Frame) -> Option<Histogram> {
-    let bins: Vec<Option<u8>> = frame
+    const CHUNK: usize = 64 * 1024 * 4;
+    let counts = frame
         .pixels
-        .par_chunks_exact(4)
-        .map(|p| (p[3] > MASK_ALPHA).then(|| to_lab([p[0], p[1], p[2]])[0].round().clamp(0.0, 255.0) as u8))
-        .collect();
-    let mut hist = [0.0f64; 256];
-    for bin in bins.into_iter().flatten() {
-        hist[bin as usize] += 1.0;
-    }
+        .par_chunks(CHUNK)
+        .map(|chunk| {
+            let mut bins = vec![0u64; 256];
+            for p in chunk.as_chunks::<4>().0.iter().filter(|p| p[3] > MASK_ALPHA) {
+                bins[to_lab([p[0], p[1], p[2]])[0].round().clamp(0.0, 255.0) as usize] += 1;
+            }
+            bins
+        })
+        .reduce(
+            || vec![0u64; 256],
+            |mut a, b| {
+                a.iter_mut().zip(b).for_each(|(x, y)| *x += y);
+                a
+            },
+        );
+    let hist: Histogram = std::array::from_fn(|i| counts[i] as f64);
     (hist.iter().sum::<f64>() > 0.0).then_some(hist)
 }
 
@@ -294,6 +308,22 @@ mod tests {
         video.apply(&mut after_cut, Some(&dark)).unwrap();
         run(MediaKind::Video, 1.0).apply(&mut fresh, Some(&dark)).unwrap();
         assert_eq!(after_cut.pixels, fresh.pixels);
+    }
+
+    #[test]
+    fn a_frame_with_nothing_visible_breaks_temporal_smoothing() {
+        let reference = ramp(10.0, 245.0, false);
+        let mut video = run(MediaKind::Video, 1.0);
+        video.apply(&mut ramp(50.0, 200.0, false), Some(&reference)).unwrap();
+        // A fully transparent frame between two visible ones (a fade through nothing).
+        let mut gap = ramp(50.0, 200.0, true);
+        gap.pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|p| p[3] = 0);
+        video.apply(&mut gap, Some(&reference)).unwrap();
+        let mut after = ramp(80.0, 170.0, false);
+        let mut fresh = after.clone();
+        video.apply(&mut after, Some(&reference)).unwrap();
+        run(MediaKind::Video, 1.0).apply(&mut fresh, Some(&reference)).unwrap();
+        assert_eq!(after.pixels, fresh.pixels);
     }
 
     #[test]

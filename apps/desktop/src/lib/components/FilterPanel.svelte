@@ -21,6 +21,8 @@
   const PREVIEW_DELAY_MS = 250;
 
   let notice = $state<string | null>(null);
+  /** Saving is separate from the preview's busy state, which the preview owns. */
+  let saving = $state(false);
 
   const stage = $derived(viewer.stage);
   const stageName = $derived(t(stage === "pre" ? "filters.pre" : "filters.post"));
@@ -89,7 +91,7 @@
     const dir = path.slice(0, path.length - name.length);
     const output = await save({ defaultPath: `${dir}${stem}_${stage}.${ext}`, title: t("viewer.filters_save") });
     if (!output) return;
-    viewer.busy = true;
+    saving = true;
     try {
       const outcome = await ipc.filterSave(path, reference, stage, $state.snapshot(active) as FilterStep[], output);
       notice = t("viewer.filters_saved", { name: basename(outcome.output) });
@@ -97,7 +99,7 @@
     } catch (e) {
       viewer.error = errorText(e);
     } finally {
-      viewer.busy = false;
+      saving = false;
     }
   }
 
@@ -149,7 +151,7 @@
           class="ghost icon save"
           title={t("viewer.filters_save")}
           aria-label={t("viewer.filters_save")}
-          disabled={viewer.busy || active.length === 0}
+          disabled={saving || active.length === 0}
           onclick={saveAs}><Icon name="download" size={15} /></button
         >
       </div>

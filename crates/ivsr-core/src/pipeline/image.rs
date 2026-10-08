@@ -60,11 +60,12 @@ pub(super) fn run(run: &JobRun<'_>) -> Result<JobOutcome> {
         // Post-processing sees the picture at its final size.
         tracker.span(Stage::Filtering, ENCODE, 0.0, None);
         let reference = match reference {
-            Some(frame) => frame,
-            None => images.decode(&engine_input, None)?,
+            Some(frame) if post.uses_reference() => Some(frame),
+            None if post.uses_reference() => Some(images.decode(&engine_input, None)?),
+            _ => None,
         };
         let mut frame = images.decode(&raw, resize)?;
-        post.apply(&mut frame, Some(&reference))?;
+        post.apply(&mut frame, reference.as_ref())?;
         cancel.check()?;
         tracker.span(Stage::Encoding, ENCODE, 0.5, None);
         let encoded = work.join(format!("output.{}", settings.image_format));

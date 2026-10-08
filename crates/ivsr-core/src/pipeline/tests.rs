@@ -98,14 +98,15 @@ impl ImageIo for FakeImages {
     }
 }
 
-/// Wraps the fake frame text as `id[reference](text)`.
-struct Tag(&'static str, Vec<FilterStage>);
+/// Wraps the fake frame text as `id[reference](text)`; the third field says
+/// whether the filter declares that it reads the reference.
+struct Tag(&'static str, Vec<FilterStage>, bool);
 
 struct TagRun(&'static str);
 
 impl Filter for Tag {
     fn info(&self) -> FilterInfo {
-        FilterInfo { id: self.0.into(), name: self.0.into(), description: "".into(), stages: self.1.clone(), uses_reference: true }
+        FilterInfo { id: self.0.into(), name: self.0.into(), description: "".into(), stages: self.1.clone(), uses_reference: self.2 }
     }
     fn params(&self) -> Vec<ParamSpec> {
         vec![]
@@ -125,7 +126,11 @@ impl FilterRun for TagRun {
 }
 
 fn tag_filters() -> Vec<Arc<dyn Filter>> {
-    vec![Arc::new(Tag("pre", vec![FilterStage::Pre])), Arc::new(Tag("post", vec![FilterStage::Post]))]
+    vec![
+        Arc::new(Tag("pre", vec![FilterStage::Pre], false)),
+        Arc::new(Tag("post", vec![FilterStage::Post], true)),
+        Arc::new(Tag("plain", vec![FilterStage::Post], false)),
+    ]
 }
 
 fn spec(id: &str) -> FilterSpec {
@@ -423,4 +428,25 @@ fn video_frame_counts_never_go_backwards_with_filters() {
     assert!(units.windows(2).all(|w| w[0] <= w[1]), "{units:?}");
     let overall: Vec<f64> = events.iter().map(|p| p.overall).collect();
     assert!(overall.windows(2).all(|w| w[0] <= w[1] + 1e-9), "{overall:?}");
+}
+
+#[test]
+fn references_are_only_decoded_when_a_post_filter_reads_them() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut settings = settings(3.0, "png");
+    settings.post = vec![spec("plain")];
+    let job = JobSpec {
+        input: tmp.path().join("clip.mp4"),
+        output: tmp.path().join("clip_x3.mp4"),
+        kind: MediaKind::Video,
+        settings,
+    };
+    let video = FakeVideo { frames: 2, pushed: Arc::default(), frame_size: (98, 50) };
+    let engine = FakeEngine::default();
+    let filters = tag_filters();
+    let tk = Toolkit { engine: &engine, images: &FakeImages, video: Some(&video), filters: &filters };
+
+    run(&tk, &job, &tmp.path().join("work"), &NullReporter, &CancelToken::new()).unwrap();
+
+    assert_eq!(fs::read_to_string(&job.output).unwrap(), "png<plain[-](98x50~up4(f1))>,png<plain[-](98x50~up4(f2))>");
 }
