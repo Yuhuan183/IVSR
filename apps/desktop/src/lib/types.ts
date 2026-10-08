@@ -299,6 +299,7 @@ export interface Bootstrap {
   config: Config;
   config_file: string;
   update_configured: boolean;
+  update_mode: "installer" | "appimage";
   filters: FilterView[];
   filter_defaults: { pre: FilterStep[]; post: FilterStep[] };
 }

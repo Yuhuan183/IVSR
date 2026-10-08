@@ -28,7 +28,7 @@ struct AppState {
     subscriber: Arc<Mutex<Option<Channel<JobEvent>>>>,
     /// Asset of the update offered by the last check.
     update: Mutex<Option<Asset>>,
-    /// Installers downloaded this session; the only files `open_update` may launch.
+    /// Updates downloaded this session; the only files `install_update` may apply.
     downloads: Mutex<HashSet<PathBuf>>,
     /// Files passed on the command line ("Open with ivsr"), handed to the UI once.
     launch_inputs: Mutex<Vec<PathBuf>>,
@@ -38,6 +38,24 @@ impl AppState {
     fn service(&self) -> Arc<Service> {
         self.service.read().unwrap().clone()
     }
+}
+
+/// The AppImage this process runs from, if any (set by the AppImage runtime).
+/// Fixed for the life of the process, so check, download and install agree.
+fn appimage() -> Option<&'static Path> {
+    static APPIMAGE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    APPIMAGE
+        .get_or_init(|| {
+            let path = std::env::var_os("APPIMAGE").map(PathBuf::from).filter(|p| p.is_file());
+            path.filter(|_| cfg!(target_os = "linux"))
+        })
+        .as_deref()
+}
+
+/// How this installation updates: an AppImage replaces itself, anything else
+/// downloads a platform installer and opens it.
+fn update_flavor() -> Flavor {
+    if appimage().is_some() { Flavor::AppImage } else { Flavor::Desktop }
 }
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -63,6 +81,8 @@ struct Bootstrap {
     config: Config,
     config_file: PathBuf,
     update_configured: bool,
+    /// `installer` (opened for the user) or `appimage` (replaced, then restarted).
+    update_mode: &'static str,
     filters: Vec<FilterView>,
     /// Built-in steps per stage, for chains that do not list their own.
     filter_defaults: FilterDefaults,
@@ -87,7 +107,8 @@ fn bootstrap_of(service: &Service) -> Bootstrap {
         video: registry.video().status(),
         config: service.config().clone(),
         config_file: service.config_file().to_path_buf(),
-        update_configured: service.updates(Flavor::Desktop, VERSION).is_configured(),
+        update_configured: service.updates(update_flavor(), VERSION).is_configured(),
+        update_mode: if appimage().is_some() { "appimage" } else { "installer" },
         filters: service.filter_views(),
         filter_defaults: FilterDefaults {
             pre: registry.default_filter_steps(FilterStage::Pre),
@@ -293,14 +314,17 @@ struct AssetView {
 async fn check_update(state: State<'_, AppState>, force: bool) -> CmdResult<UpdateView> {
     let service = state.service();
     let check = blocking(move || {
-        let updates = service.updates(Flavor::Desktop, VERSION);
+        let updates = service.updates(update_flavor(), VERSION);
         if !updates.is_configured() {
             return Ok(None);
         }
-        let result = if force || updates.known_update().is_some() {
+        let result = if force {
             Some(updates.check().map_err(err)?)
+        } else if updates.known_update().is_some() {
+            // Automatic: refresh what an earlier check found, minus skipped versions.
+            Some(updates.reminder(updates.check().map_err(err)?))
         } else {
-            updates.check_if_due()
+            updates.check_if_due().map(|c| updates.reminder(c))
         };
         Ok(Some(result))
     })
@@ -338,7 +362,7 @@ async fn download_update(state: State<'_, AppState>, channel: Channel<DownloadPr
     let path = blocking(move || {
         let mut last = Instant::now() - Duration::from_secs(1);
         service
-            .updates(Flavor::Desktop, VERSION)
+            .updates(update_flavor(), VERSION)
             .download(
                 &asset,
                 &mut |received, total| {
@@ -357,11 +381,24 @@ async fn download_update(state: State<'_, AppState>, channel: Channel<DownloadPr
     Ok(path)
 }
 
-/// Launches a downloaded installer with the platform handler.
+/// Applies a downloaded update. An AppImage is replaced in place and the app
+/// restarts into the new version; an installer is opened with the platform
+/// handler for the user to complete. Refused while jobs run: the restart, or
+/// an installer replacing the app, would cut them off.
 #[tauri::command]
-fn open_update(app: AppHandle, state: State<'_, AppState>, path: PathBuf) -> CmdResult<()> {
+fn install_update(app: AppHandle, state: State<'_, AppState>, path: PathBuf) -> CmdResult<()> {
     if !state.downloads.lock().unwrap().contains(&path) {
         return Err("not a downloaded update".into());
+    }
+    if state.queue.pending() > 0 {
+        return Err("busy".into());
+    }
+    if let Some(target) = appimage() {
+        state.service().updates(Flavor::AppImage, VERSION).apply_appimage(&path, target).map_err(err)?;
+        // Exits through RunEvent::Exit (queue and child-process cleanup), then
+        // starts `APPIMAGE` again, i.e. the file just replaced.
+        app.request_restart();
+        return Ok(());
     }
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(err)
 }
@@ -369,7 +406,7 @@ fn open_update(app: AppHandle, state: State<'_, AppState>, path: PathBuf) -> Cmd
 #[tauri::command]
 fn skip_update(state: State<'_, AppState>, version: String) -> CmdResult<()> {
     let version = ivsr_update::release::parse_tag(&version).ok_or("invalid version")?;
-    state.service().updates(Flavor::Desktop, VERSION).skip(&version).map_err(err)
+    state.service().updates(update_flavor(), VERSION).skip(&version).map_err(err)
 }
 
 #[tauri::command]
@@ -597,7 +634,7 @@ pub fn run() {
             install_engine,
             check_update,
             download_update,
-            open_update,
+            install_update,
             skip_update,
             reveal,
             model_overview,

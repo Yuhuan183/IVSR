@@ -21,8 +21,10 @@ use crate::{Error, Result};
 pub enum Flavor {
     /// Archives named `ivsr-cli-<version>-<target>.tar.gz|.zip`, applied in place.
     Cli,
-    /// Platform installers (`.dmg`, `-setup.exe`, `.msi`, `.AppImage`), opened for the user.
+    /// Platform installers (`.dmg`, `-setup.exe`, `.msi`, `.deb`), opened for the user.
     Desktop,
+    /// The desktop app running as an AppImage: the new AppImage replaces it in place.
+    AppImage,
 }
 
 /// How `flavor` recognises its asset for `platform` among a release's files.
@@ -30,7 +32,8 @@ fn selector_for(flavor: Flavor, platform: Platform) -> PlatformSelector {
     let selector = PlatformSelector::new(platform);
     match flavor {
         Flavor::Cli => selector.require("cli").suffixes([".tar.gz", ".zip"]),
-        Flavor::Desktop => selector.suffixes([".dmg", "-setup.exe", ".msi", ".appimage", ".deb"]),
+        Flavor::Desktop => selector.suffixes([".dmg", "-setup.exe", ".msi", ".deb"]),
+        Flavor::AppImage => selector.suffixes([".appimage"]),
     }
 }
 
@@ -123,6 +126,18 @@ impl<'a> Updates<'a> {
         (available > self.current && skipped.as_ref() != Some(&available)).then_some(available)
     }
 
+    /// `check` as an automatic reminder: a version the user chose to skip is
+    /// reported as up to date. Explicit checks show it regardless.
+    pub fn reminder(&self, check: UpdateCheck) -> UpdateCheck {
+        let skipped = self.store().load().skipped.and_then(|s| Version::parse(&s).ok());
+        match check {
+            UpdateCheck::Available { current, latest, .. } if skipped.as_ref() == Some(&latest) => {
+                UpdateCheck::UpToDate { current, latest: Some(latest) }
+            }
+            other => other,
+        }
+    }
+
     pub fn skip(&self, version: &Version) -> Result<()> {
         let store = self.store();
         let mut state = store.load();
@@ -139,6 +154,14 @@ impl<'a> Updates<'a> {
         let source = self.source()?;
         let dir = self.paths.downloads_dir();
         Ok(ivsr_update::download(self.http.as_ref(), source.as_ref(), asset, &dir, progress, &|| cancel.is_cancelled())?)
+    }
+
+    /// Replaces the AppImage at `target` (the `APPIMAGE` the app runs from)
+    /// with the downloaded one; the next launch runs the new version.
+    pub fn apply_appimage(&self, downloaded: &Path, target: &Path) -> Result<()> {
+        install::replace_file(downloaded, target)?;
+        let _ = std::fs::remove_file(downloaded);
+        Ok(())
     }
 
     /// Unpacks a CLI archive and swaps the running executable for the one inside.
@@ -176,9 +199,12 @@ mod tests {
         "IVSR_1.2.3_amd64.deb",
     ];
 
+    /// Per shipped platform: CLI archive suffix and installer suffix. Linux
+    /// desktop installs from the .deb update through a .deb; AppImages are
+    /// checked separately.
     const SHIPPED: [(Os, Arch, &str, &str); 3] = [
         (Os::Macos, Arch::Arm64, "-aarch64-apple-darwin.tar.gz", ".dmg"),
-        (Os::Linux, Arch::X64, "-x86_64-unknown-linux-gnu.tar.gz", ".appimage"),
+        (Os::Linux, Arch::X64, "-x86_64-unknown-linux-gnu.tar.gz", ".deb"),
         (Os::Windows, Arch::X64, "-x86_64-pc-windows-msvc.zip", "-setup.exe"),
     ];
 
@@ -226,10 +252,18 @@ mod tests {
     }
 
     #[test]
+    fn release_assets_update_a_running_appimage_with_an_appimage() {
+        let release = release(&assets());
+        let platform = Platform { os: Os::Linux, arch: Arch::X64 };
+        let picked = selector_for(Flavor::AppImage, platform).select(&release).map(|a| a.name.to_ascii_lowercase());
+        assert!(picked.as_deref().is_some_and(|n| n.ends_with(".appimage")), "{picked:?}");
+    }
+
+    #[test]
     fn release_assets_never_match_unshipped_platforms() {
         let release = release(&assets());
         for platform in [Platform { os: Os::Macos, arch: Arch::X64 }, Platform { os: Os::Linux, arch: Arch::Arm64 }] {
-            for flavor in [Flavor::Cli, Flavor::Desktop] {
+            for flavor in [Flavor::Cli, Flavor::Desktop, Flavor::AppImage] {
                 let picked = selector_for(flavor, platform).select(&release).map(|a| a.name.clone());
                 assert_eq!(picked, None, "{platform} {flavor:?}");
             }

@@ -131,7 +131,7 @@ pub enum Command {
         files: Vec<PathBuf>,
     },
 
-    /// Check for and install IVSR updates.
+    /// Check for an IVSR update and, if there is one, ask to install it.
     Update {
         #[command(subcommand)]
         action: Option<UpdateAction>,
@@ -316,7 +316,7 @@ pub enum ModelsAction {
 
 #[derive(Subcommand, Debug)]
 pub enum UpdateAction {
-    /// Check whether a newer version is available (default).
+    /// Only check whether a newer version is available.
     Check,
     /// Download and install the newest version.
     Install {

@@ -52,9 +52,17 @@
       {#each LOCALES as l (l.id)}<option value={l.id}>{l.label}</option>{/each}
     </select>
     {#if app.boot?.update_configured}
-      <button class="ghost" disabled={updates.checking} onclick={() => updates.check(true)} title={t("update.check")}>
+      {#if updates.available}
+        <button class="update-badge" title={t("update.badge_hint")} onclick={() => updates.ask()}>
+          <Icon name="download" size={13} /> {t("update.badge", { version: updates.available.latest })}
+        </button>
+      {:else if updates.error}
+        <span class="note err" role="status" title={updates.error}>{t("update.check_failed")}</span>
+      {:else if updates.upToDate}
+        <span class="note" role="status">{t("update.up_to_date")}</span>
+      {/if}
+      <button class="ghost" disabled={updates.checking} onclick={() => updates.check(true)} title={t("update.check")} aria-label={t("update.check")}>
         <span class:spin={updates.checking}><Icon name="refresh" size={14} /></span>
-        {#if updates.available}<span class="update">{t("update.badge", { version: updates.available.latest })}</span>{/if}
       </button>
     {/if}
   </div>
@@ -137,9 +145,21 @@
   .pill.ready .dot {
     background: var(--ok);
   }
-  .update {
+  .update-badge {
+    padding: 3px 10px;
+    border-radius: 99px;
+    border: 1px solid color-mix(in srgb, var(--accent-2) 55%, transparent);
+    background: color-mix(in srgb, var(--accent-2) 14%, transparent);
     color: var(--accent-2);
+    font-size: 12px;
     font-weight: 600;
+  }
+  .note {
+    font-size: 12px;
+    color: var(--ok);
+  }
+  .note.err {
+    color: var(--err);
   }
   /* Narrow windows (or a large content scale): icon-only tabs, compact status. */
   @media (max-width: 760px) {

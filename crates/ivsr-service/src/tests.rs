@@ -502,3 +502,29 @@ fn standalone_reference_must_exist_and_a_single_file_fits_a_single_input() {
     let one = svc.prepare_filters(&[a], &request(&original)).unwrap();
     assert_eq!(one.jobs[0].reference.as_deref(), Some(original.as_path()));
 }
+
+/// Serves a release listing with v99.0.0 for every request.
+struct ReleaseHost;
+
+impl HttpClient for ReleaseHost {
+    fn get(&self, _: &str, _: &[(&str, &str)]) -> ivsr_update::Result<HttpResponse> {
+        let body = br#"[{"tag_name": "v99.0.0", "draft": false, "prerelease": false, "assets": []}]"#.to_vec();
+        Ok(HttpResponse { status: 200, content_length: Some(body.len() as u64), body: Box::new(Cursor::new(body)) })
+    }
+}
+
+#[test]
+fn a_skipped_version_is_not_announced_by_automatic_checks_but_explicit_checks_still_see_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path()).with_http(Arc::new(ReleaseHost));
+    let updates = svc.updates(Flavor::Desktop, "0.1.0");
+    let latest = match updates.check().unwrap() {
+        ivsr_update::UpdateCheck::Available { latest, .. } => latest,
+        other => panic!("expected an update, got {other:?}"),
+    };
+    updates.skip(&latest).unwrap();
+
+    let automatic = updates.reminder(updates.check().unwrap());
+    assert!(matches!(automatic, ivsr_update::UpdateCheck::UpToDate { .. }), "{automatic:?}");
+    assert!(matches!(updates.check().unwrap(), ivsr_update::UpdateCheck::Available { .. }));
+}

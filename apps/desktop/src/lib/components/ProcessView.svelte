@@ -11,7 +11,6 @@
   import Icon from "./Icon.svelte";
   import QueueList from "./QueueList.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
-  import UpdateBanner from "./UpdateBanner.svelte";
 
   let drawer = $state(false);
 
@@ -55,7 +54,6 @@
 
 <div class="process">
   <section class="workspace">
-    <UpdateBanner />
     {#if engine && !engineReady}
       <EngineSetup {engine} />
     {/if}

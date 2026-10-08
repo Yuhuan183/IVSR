@@ -6,6 +6,8 @@
   import ModelsView from "./lib/components/ModelsView.svelte";
   import ProcessView from "./lib/components/ProcessView.svelte";
   import TitleBar from "./lib/components/TitleBar.svelte";
+  import UpdateBanner from "./lib/components/UpdateBanner.svelte";
+  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import Viewer from "./lib/components/Viewer.svelte";
   import { i18n, t } from "./lib/i18n/index.svelte";
   import { ipc } from "./lib/ipc";
@@ -81,6 +83,7 @@
 {:else}
   <div class="shell">
     <TitleBar />
+    <UpdateBanner />
     <main class="main">
       {#if nav.view === "process"}
         <ProcessView />
@@ -99,6 +102,8 @@
   {#if viewer.current}
     <Viewer />
   {/if}
+
+  <UpdateDialog />
 {/if}
 
 <style>

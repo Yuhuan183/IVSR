@@ -204,3 +204,49 @@ fn a_digest_mismatch_aborts_and_leaves_the_binary_untouched() {
     assert!(!out.status.success(), "a tampered download must fail");
     assert!(std::fs::read(&exe).unwrap() == before, "client binary changed despite the bad digest");
 }
+
+#[test]
+fn bare_update_checks_then_asks_and_without_a_terminal_leaves_the_binary_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = synthetic_archive();
+    let base = server_for(&archive, digest_of(&archive.bytes));
+    let (exe, home) = client(tmp.path(), &base);
+    let before = std::fs::read(&exe).unwrap();
+
+    // No terminal to answer the question: report the update and how to install it.
+    let out = run(&exe, &home, &["update"]);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("99.0.0") && stderr.contains("ivsr update install --yes"), "{stderr}");
+    assert!(std::fs::read(&exe).unwrap() == before, "installed without consent");
+}
+
+#[test]
+fn bare_update_with_json_reports_the_check_without_installing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = synthetic_archive();
+    let base = server_for(&archive, digest_of(&archive.bytes));
+    let (exe, home) = client(tmp.path(), &base);
+    let before = std::fs::read(&exe).unwrap();
+
+    let out = run(&exe, &home, &["--json", "update"]);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(last_event(&out)["status"], "available");
+    assert!(std::fs::read(&exe).unwrap() == before);
+}
+
+#[test]
+fn bare_update_without_a_build_for_this_platform_reports_instead_of_failing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut archive = synthetic_archive();
+    archive.name = "ivsr-cli-99.0.0-sparc-solaris.tar.gz".into();
+    let base = server_for(&archive, digest_of(&archive.bytes));
+    let (exe, home) = client(tmp.path(), &base);
+
+    let out = run(&exe, &home, &["update"]);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no CLI build"), "{}", String::from_utf8_lossy(&out.stderr));
+}

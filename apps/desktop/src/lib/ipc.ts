@@ -53,7 +53,7 @@ export const ipc = {
     channel.onmessage = (p) => onProgress(p.received, p.total);
     return invoke<string>("download_update", { channel });
   },
-  openUpdate: (path: string) => invoke<void>("open_update", { path }),
+  installUpdate: (path: string) => invoke<void>("install_update", { path }),
   skipUpdate: (version: string) => invoke<void>("skip_update", { version }),
   reveal: (path: string) => invoke<void>("reveal", { path }),
 

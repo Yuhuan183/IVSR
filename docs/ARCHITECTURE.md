@@ -13,7 +13,7 @@
 | `realesrgan-ncnn-vulkan` 找不到模型檔時直接 crash (exit 139, 無訊息) | 實驗確認它會載入任意 `<name>.param/.bin` (只有 `realesr-animevideov3` 這個名稱改讀 `-x<scale>` 檔), 所以執行前一律先確認權重檔存在 |
 | 模型目錄路徑必須包含 `models` 字樣 (binary 限制) | `status()` 會檢查並回報 Broken, 不會等到執行時才失敗 |
 | 舊版 release 資產沒有 checksum | GitHub 有提供 `digest` 時驗證 SHA-256, 否則只驗證檔案大小, 並在 CLI/安裝紀錄中如實標示 `size_only` |
-| GUI 自我更新 | 下載平台安裝檔 (`.dmg` / `-setup.exe` / `.msi` / `.AppImage`) 後交給系統開啟; CLI 則就地替換執行檔 |
+| GUI 自我更新 | 使用者確認後下載並驗證: AppImage 就地替換後重新啟動, 其他平台把安裝檔 (`.dmg` / `-setup.exe` / `.deb`) 交給系統開啟; CLI 則就地替換執行檔 |
 | `image` crate 的 WebP 編碼只有無損 | 格式表明確標示, 有損 WebP 留待之後加 codec 實作 |
 | 下載的模型可能宣告錯誤的倍率或損壞 | 型錄檔案逐一驗證 SHA-256; 匯入的模型會先用 16×16 測試圖實際跑一次, 輸出倍率不符就整個撤回 |
 | 第三方模型授權 | 型錄只收錄授權明確的模型 (BSD-3-Clause、CC-BY-4.0, 以 OpenModelDB 為準), 並在 CLI / GUI 顯示作者與出處; CC-BY-NC 等非商用授權未收錄 |
@@ -201,8 +201,8 @@ enabled = false             # 沒有 steps 時沿用內建順序
 provider = "github"
 repository = "Yuhuan183/IVSR"  # owner/repo; 空字串代表停用更新檢查
 channel = "stable"        # stable / beta
-auto_check = true
-interval_hours = 24
+auto_check = true         # 桌面版啟動時檢查並提示; CLI 只在執行 `ivsr update` 時檢查
+interval_hours = 24       # 桌面版自動檢查的最短間隔
 token_env = ""            # 私有 repo: 存放 token 的環境變數名稱
 ```
 
@@ -235,6 +235,11 @@ commit + git tag v0.2.0 + push  ─▶ .github/workflows/release.yml
 - `crates/ivsr-service/src/updates.rs` 的 `release_assets` 測試: 預設用標準檔名, 發版時以 `IVSR_RELEASE_ASSETS` 換成 draft 的實際檔名清單.
 - 桌面版的更新是下載安裝檔後交給系統開啟, 開啟後的安裝流程沒有自動化測試.
 - CI 另以 Rust 1.88 (宣告的最低版本) 檢查桌面版以外的 crate; 桌面版因 Tauri 2.12 外掛需要 1.90.
+
+### 更新流程
+
+- 桌面版: 啟動時自動檢查 (依 `update.auto_check` 與 `interval_hours`), 標題列的按鈕可手動檢查. 發現新版本時, 標題列顯示「更新到 x.y.z」, 每個頁面頂端顯示橫幅; 兩者都只會打開確認對話框 (版本、下載大小、release note、安裝後會發生什麼), 使用者按「立即更新」才下載; 有工作在執行時不能更新 (重新啟動或安裝程式會中斷工作). 選「略過這個版本」後, 自動檢查不再提示該版本, 手動檢查仍會顯示. 下載後驗證 SHA-256, 接著依安裝方式處理: AppImage 就地替換自己 (若 `APPIMAGE` 是 symlink 則替換它指向的檔案), 經正常的退出流程後重新啟動; macOS 開啟 `.dmg`; Windows 執行 `-setup.exe`; 以 `.deb` 安裝的 Linux 開啟新的 `.deb`.
+- CLI: 不在其他指令中檢查或提醒. `ivsr update` 檢查後詢問是否安裝, 同意才下載、驗證並替換執行檔; 沒有終端機可回答時只回報新版本並提示 `ivsr update install --yes`. `ivsr update check` 只檢查, `ivsr update skip` 略過目前的新版本.
 
 ### macOS 簽章
 

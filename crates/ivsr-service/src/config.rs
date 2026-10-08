@@ -160,7 +160,10 @@ pub struct UpdateConfig {
     /// `owner/repo` for GitHub; empty disables update checks.
     pub repository: String,
     pub channel: Channel,
+    /// Desktop app: check at start-up and announce a new version. The CLI
+    /// only checks when asked (`ivsr update`).
     pub auto_check: bool,
+    /// Desktop app: minimum hours between automatic checks.
     pub interval_hours: u32,
     /// API endpoint override (GitHub Enterprise).
     pub api_base: Option<String>,

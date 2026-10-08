@@ -65,6 +65,7 @@ ivsr models bench --all                  # 在這台電腦測速, 結果用於�
 ivsr models import my-net --param my.param --bin my.bin --scale 4   # 匯入本機 ncnn 模型 (會實際驗證倍率)
 ivsr models remove my-net                # 移除下載或匯入的模型 (內建模型不可單獨移除)
 ivsr system                              # OS、CPU、記憶體、引擎可用的 GPU
+ivsr update                              # 檢查新版本, 有的話詢問是否安裝 (CLI 不會自行提醒)
 ```
 
 額外的模型型錄可用 `ivsr config set models.catalogs '["https://example.com/catalog.json"]'` 加入, 格式同 [`crates/ivsr-engine-realesrgan/src/catalog.json`](crates/ivsr-engine-realesrgan/src/catalog.json).
@@ -78,6 +79,7 @@ ivsr system                              # OS、CPU、記憶體、引擎可用�
 - 右上角可切換語言 (跟隨系統 / English / 正體中文). 文字大小圖示可調整介面大小 (100%–200%, 也可用 Cmd/Ctrl 加 `+` `-` `0`), 比較檢視器的工具列也有同一個按鈕; 視窗變窄或介面放大時版面會自動調整, 設定面板改為側拉抽屜. 設定與 CLI 共用.
 - 設定面板與濾鏡面板可拖曳左緣調整寬度 (按兩下恢復預設).
 - 倍率可選 ×1: 模型以原生倍率處理後縮回原尺寸, 尺寸不變但細節更清楚.
+- 更新: 啟動時自動檢查, 標題列也可手動檢查. 有新版本時標題列與頁面頂端會提示, 點擊後先詢問, 同意才下載安裝 (AppImage 直接替換並重新啟動, 其他平台開啟安裝檔).
 
 ## 發版
 

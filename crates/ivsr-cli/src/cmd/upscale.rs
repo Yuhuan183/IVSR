@@ -7,7 +7,7 @@ use console::style;
 use ivsr_core::scale::format_scale;
 use ivsr_core::{AudioMode, CancelToken, FilterStage, LogLevel, ParamValues, Progress, Reporter, Stage, UpscaleSettings};
 use ivsr_service::throttle::Throttled;
-use ivsr_service::{ConflictPolicy, Flavor, JobRequest, Prepared, Service, VERSION};
+use ivsr_service::{ConflictPolicy, JobRequest, Prepared, Service};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use serde_json::json;
 
@@ -21,11 +21,6 @@ const NAME_WIDTH: usize = 28;
 
 pub fn run(service: Service, args: &UpscaleArgs, ui: &Ui) -> CmdResult {
     let service = Arc::new(service);
-    if ui.interactive {
-        // Refresh the cached update state in the background; never delays the job.
-        let svc = service.clone();
-        std::thread::spawn(move || svc.updates(Flavor::Cli, VERSION).check_if_due());
-    }
 
     let request = build_request(&service, args)?;
     let prepared = service.prepare(&args.inputs, &request)?;
@@ -132,11 +127,6 @@ pub fn run(service: Service, args: &UpscaleArgs, ui: &Ui) -> CmdResult {
         }
         eprintln!("{}", tr!("upscale.summary", parts = parts.join(", "), elapsed = ui::human_duration(elapsed)));
     }
-    if !ui.json
-        && let Some(version) = service.updates(Flavor::Cli, VERSION).known_update() {
-            ui.hint(&tr!("upscale.update_hint", version = version, current = VERSION));
-        }
-
     Ok(if cancelled {
         ExitCode::from(130)
     } else if failed > 0 {
