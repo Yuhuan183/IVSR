@@ -1,8 +1,8 @@
 // The user's current processing choices. Edits persist to the shared
 // config.toml (debounced), so the CLI and the app share defaults.
 
-import { app } from "./app.svelte";
-import type { AudioMode, Config, ConflictPolicy, JobRequest, ParamValue } from "../types";
+import { app, normalizeSteps } from "./app.svelte";
+import type { AudioMode, Config, ConflictPolicy, FilterChain, FilterStage, FilterStep, JobRequest, ParamValue } from "../types";
 
 const SAVE_DELAY_MS = 500;
 
@@ -21,6 +21,11 @@ class SettingsStore {
   outputDir = $state<string | null>(null);
   suffix = $state("_x{scale}");
   conflict = $state<ConflictPolicy>("rename");
+  /** Pre- and post-processing chains; `steps: null` follows the built-in order. */
+  filters = $state<Record<FilterStage, FilterChain>>({
+    pre: { enabled: false, steps: null },
+    post: { enabled: false, steps: null },
+  });
 
   #loaded = false;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -59,7 +64,26 @@ class SettingsStore {
     this.videoPreset = config.video.preset ?? null;
     this.audio = config.video.audio;
     this.container = config.video.container;
+    const chain = (c: FilterChain | undefined): FilterChain => ({
+      enabled: c?.enabled ?? false,
+      steps: c?.steps ? normalizeSteps(c.steps) : null,
+    });
+    this.filters = { pre: chain(config.filters?.pre), post: chain(config.filters?.post) };
     queueMicrotask(() => (this.#loaded = true));
+  }
+
+  /** Steps `stage` runs when on: the user's own, or the built-in order. */
+  steps(stage: FilterStage): FilterStep[] {
+    return this.filters[stage].steps ?? app.defaultSteps(stage);
+  }
+
+  /** `null` restores the built-in order. */
+  setSteps(stage: FilterStage, steps: FilterStep[] | null) {
+    this.filters[stage] = { ...this.filters[stage], steps };
+  }
+
+  setFiltersEnabled(stage: FilterStage, enabled: boolean) {
+    this.filters[stage] = { ...this.filters[stage], enabled };
   }
 
   /** Engine parameter value, falling back to the schema default. */
@@ -91,6 +115,8 @@ class SettingsStore {
       output: this.outputDir,
       suffix: this.suffix,
       conflict: this.conflict,
+      pre: $state.snapshot(this.filters.pre),
+      post: $state.snapshot(this.filters.post),
     };
   }
 
@@ -111,34 +137,34 @@ class SettingsStore {
       outputDir: this.outputDir,
       suffix: this.suffix,
       conflict: this.conflict,
+      filters: this.filters,
     });
   }
 
   async #persist(s: ReturnType<SettingsStore["snapshot"]>) {
-    const base = app.boot?.config;
-    if (!base) return;
-    const config: Config = structuredClone($state.snapshot(base)) as Config;
-    config.engine = s.engine;
-    const engineCfg = (config.engines[s.engine] ??= { params: {} });
-    engineCfg.model = s.model;
-    engineCfg.params = s.params;
-    Object.assign(config.output, {
-      scale: s.scale,
-      image_format: s.imageFormat,
-      image_quality: s.imageQuality,
-      suffix: s.suffix,
-      conflict: s.conflict,
-      directory: s.outputDir,
-    });
-    Object.assign(config.video, {
-      codec: s.videoCodec,
-      quality: s.videoQuality,
-      preset: s.videoPreset,
-      audio: s.audio,
-      container: s.container,
-    });
     try {
-      await app.save(config);
+      await app.update((config) => {
+        config.engine = s.engine;
+        const engineCfg = (config.engines[s.engine] ??= { params: {} });
+        engineCfg.model = s.model;
+        engineCfg.params = s.params;
+        Object.assign(config.output, {
+          scale: s.scale,
+          image_format: s.imageFormat,
+          image_quality: s.imageQuality,
+          suffix: s.suffix,
+          conflict: s.conflict,
+          directory: s.outputDir,
+        });
+        config.filters = s.filters;
+        Object.assign(config.video, {
+          codec: s.videoCodec,
+          quality: s.videoQuality,
+          preset: s.videoPreset,
+          audio: s.audio,
+          container: s.container,
+        });
+      });
     } catch (e) {
       console.error("failed to save settings", e);
     }

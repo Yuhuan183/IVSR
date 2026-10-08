@@ -1,0 +1,11 @@
+[package]
+name = "ivsr-filters"
+description = "Built-in pre- and post-processing image filters for ivsr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ivsr-core.workspace = true
+rayon = "1.10"

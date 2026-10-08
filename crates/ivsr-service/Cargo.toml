@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 ivsr-core.workspace = true
 ivsr-engine-realesrgan.workspace = true
+ivsr-filters.workspace = true
 ivsr-media.workspace = true
 ivsr-update.workspace = true
 serde.workspace = true
@@ -18,7 +19,7 @@ thiserror.workspace = true
 toml.workspace = true
 dirs.workspace = true
 sys-locale = "0.3"
-sha2 = "0.10"
+sha2.workspace = true
 tempfile.workspace = true
 
 [target.'cfg(windows)'.dependencies]
@@ -26,4 +27,4 @@ windows-sys = { version = "0.59", features = ["Win32_System_SystemInformation"] 
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip.workspace = true

@@ -3,8 +3,14 @@
   import { tx } from "../i18n/index.svelte";
   import type { ParamSpec, ParamValue } from "../types";
 
-  let { spec, value, onchange }: { spec: ParamSpec; value: ParamValue | undefined; onchange: (v: ParamValue) => void } =
-    $props();
+  let {
+    spec,
+    value,
+    onchange,
+    idPrefix = "",
+  }: { spec: ParamSpec; value: ParamValue | undefined; onchange: (v: ParamValue) => void; idPrefix?: string } = $props();
+
+  const id = $derived(`${idPrefix}param-${spec.key}`);
 
   const current = $derived(value ?? spec.default);
 
@@ -16,17 +22,17 @@
 </script>
 
 <div class="field" class:inline={spec.kind.type === "bool"} title={tx(spec.description)}>
-  <label for="param-{spec.key}">{tx(spec.label)}</label>
+  <label for={id}>{tx(spec.label)}</label>
   {#if spec.kind.type === "bool"}
     <input
-      id="param-{spec.key}"
+      {id}
       type="checkbox"
       checked={current === true}
       onchange={(e) => onchange((e.currentTarget as HTMLInputElement).checked)}
     />
   {:else if spec.kind.type === "int" || spec.kind.type === "float"}
     <input
-      id="param-{spec.key}"
+      {id}
       type="number"
       value={current}
       min={spec.kind.min ?? undefined}
@@ -35,14 +41,14 @@
       onchange={(e) => number(e, spec.kind.type === "int")}
     />
   {:else if spec.kind.type === "enum"}
-    <select id="param-{spec.key}" value={String(current)} onchange={(e) => onchange((e.currentTarget as HTMLSelectElement).value)}>
+    <select {id} value={String(current)} onchange={(e) => onchange((e.currentTarget as HTMLSelectElement).value)}>
       {#each spec.kind.options as option (option.value)}
         <option value={option.value}>{tx(option.label)}</option>
       {/each}
     </select>
   {:else}
     <input
-      id="param-{spec.key}"
+      {id}
       type="text"
       value={String(current)}
       onchange={(e) => onchange((e.currentTarget as HTMLInputElement).value)}

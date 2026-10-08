@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ivsr_core::{AudioMode, ParamValue};
+use ivsr_core::{AudioMode, FilterChain, FilterStage, ParamValue};
 use ivsr_update::Channel;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +32,25 @@ pub struct Config {
     pub ui: UiConfig,
     pub models: ModelsConfig,
     pub history: HistoryConfig,
+    pub filters: FiltersConfig,
+}
+
+/// Pre- and post-processing chains. Both are off until switched on, and a
+/// chain without `steps` follows the built-in order.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FiltersConfig {
+    pub pre: FilterChain,
+    pub post: FilterChain,
+}
+
+impl FiltersConfig {
+    pub fn chain(&self, stage: FilterStage) -> &FilterChain {
+        match stage {
+            FilterStage::Pre => &self.pre,
+            FilterStage::Post => &self.post,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -39,6 +58,12 @@ pub struct Config {
 pub struct UiConfig {
     /// `auto` (follow the OS), `en` or `zh-TW`.
     pub language: String,
+    /// Desktop app content scale (page zoom), 1.0 = 100%.
+    pub scale: f64,
+    /// Desktop app settings panel width, in CSS pixels at 100%.
+    pub panel_width: u32,
+    /// Desktop app viewer filter panel width, in CSS pixels at 100%.
+    pub filter_panel_width: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -59,7 +84,7 @@ pub struct HistoryConfig {
 
 impl Default for UiConfig {
     fn default() -> Self {
-        Self { language: "auto".into() }
+        Self { language: "auto".into(), scale: 1.0, panel_width: 340, filter_panel_width: 320 }
     }
 }
 
@@ -135,7 +160,10 @@ pub struct UpdateConfig {
     /// `owner/repo` for GitHub; empty disables update checks.
     pub repository: String,
     pub channel: Channel,
+    /// Desktop app: check at start-up and announce a new version. The CLI
+    /// only checks when asked (`ivsr update`).
     pub auto_check: bool,
+    /// Desktop app: minimum hours between automatic checks.
     pub interval_hours: u32,
     /// API endpoint override (GitHub Enterprise).
     pub api_base: Option<String>,
@@ -156,6 +184,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             models: ModelsConfig::default(),
             history: HistoryConfig::default(),
+            filters: FiltersConfig::default(),
         }
     }
 }
@@ -296,6 +325,7 @@ fn is_known_path(parts: &[&str]) -> bool {
         // Free-form maps.
         ["engines", _engine, "params", _param] => true,
         ["engines", _engine, field] => matches!(*field, "path" | "models_dir" | "model"),
+        ["filters", stage, field] => matches!(*stage, "pre" | "post") && matches!(*field, "enabled" | "steps"),
         [section, field] if matches!(*section, "output" | "video" | "tools" | "update" | "ui" | "models" | "history") => {
             let optional = matches!(
                 (*section, *field),
@@ -343,15 +373,38 @@ mod tests {
         cfg.set("engines.realesrgan.params.tile", "256").unwrap();
         cfg.set("engines.realesrgan.model", "realesr-animevideov3").unwrap();
         cfg.set("work_dir", "/scratch").unwrap();
+        cfg.set("ui.scale", "1.5").unwrap();
+        cfg.set("ui.panel_width", "420").unwrap();
         assert_eq!(cfg.output.scale, 2.0);
         assert_eq!(cfg.video.preset.as_deref(), Some("8"));
         assert_eq!(cfg.video.audio, AudioMode::Drop);
+        assert_eq!((cfg.ui.scale, cfg.ui.panel_width), (1.5, 420));
         let engine = cfg.engine_config("realesrgan");
         assert_eq!(engine.params.get("tile"), Some(&ParamValue::Int(256)));
         assert_eq!(engine.model.as_deref(), Some("realesr-animevideov3"));
         assert_eq!(cfg.get("engines.realesrgan.params.tile").unwrap(), Some(toml::Value::Integer(256)));
         cfg.unset("video.audio").unwrap();
         assert_eq!(cfg.video.audio, AudioMode::Auto);
+    }
+
+    #[test]
+    fn filter_chains_are_set_by_dotted_keys_and_default_to_off() {
+        let mut cfg = Config::default();
+        assert!(!cfg.filters.post.enabled && cfg.filters.post.steps.is_none());
+        cfg.set("filters.post.enabled", "true").unwrap();
+        cfg.set("filters.pre.steps", r#"[{ id = "saturation", params = { amount = 1.2 } }]"#).unwrap();
+        assert!(cfg.filters.post.enabled);
+        let steps = cfg.filters.pre.steps.as_ref().unwrap();
+        assert_eq!((steps[0].id.as_str(), steps[0].enabled), ("saturation", true));
+        assert_eq!(steps[0].params.get("amount"), Some(&ParamValue::Float(1.2)));
+        assert!(cfg.set("filters.mid.enabled", "true").is_err());
+        cfg.unset("filters.pre.steps").unwrap();
+        assert!(cfg.filters.pre.steps.is_none());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        cfg.save(&path).unwrap();
+        assert_eq!(Config::load(&path).unwrap(), cfg);
     }
 
     #[test]

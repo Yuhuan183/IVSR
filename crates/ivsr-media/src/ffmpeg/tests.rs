@@ -127,3 +127,48 @@ fn h264_into_webm_is_rejected_before_spawning() {
     });
     assert!(matches!(result, Err(Error::UnsupportedFormat(_))));
 }
+
+/// ffmpeg before 5.1 (Ubuntu 22.04 ships 4.4) has no `-fps_mode`; frame
+/// extraction must fall back to `-vsync`. Simulated by a wrapper that
+/// rejects `-fps_mode` the way those versions do, and hands `-vsync` to the
+/// real ffmpeg as whichever option it understands (8+ removed `-vsync`).
+#[cfg(unix)]
+#[test]
+fn extraction_works_with_ffmpeg_older_than_5_1() {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(real) = toolchain() else { return };
+    let real_ffmpeg = real.ffmpeg().unwrap();
+    let help = Command::new(&real_ffmpeg).args(["-hide_banner", "-h", "full"]).output().unwrap();
+    let sync = if String::from_utf8_lossy(&help.stdout).contains("-fps_mode") { "-fps_mode" } else { "-vsync" };
+    let tmp = tempfile::tempdir().unwrap();
+    let wrapper = tmp.path().join("ffmpeg");
+    let script = format!(
+        r#"#!/bin/sh
+for a in "$@"; do
+  [ "$a" = -fps_mode ] && {{ echo "Unrecognized option 'fps_mode'." >&2; echo 'Error splitting the argument list: Option not found' >&2; exit 1; }}
+done
+n=$#
+for a in "$@"; do
+  if [ "$a" = -vsync ]; then set -- "$@" {sync}; else set -- "$@" "$a"; fi
+done
+shift $n
+exec '{}' "$@"
+"#,
+        real_ffmpeg.display()
+    );
+    fs::write(&wrapper, script).unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    let old = Ffmpeg::new(FfmpegConfig { ffmpeg: Some(wrapper), ffprobe: None });
+
+    let input = tmp.path().join("in.mp4");
+    sample_video(&input);
+    let info = old.probe(&input).unwrap();
+    let frames_dir = tmp.path().join("frames");
+    fs::create_dir_all(&frames_dir).unwrap();
+    let ctx = TaskContext { cancel: &CancelToken::new(), progress: &|_| {}, log: &|_, _| {} };
+
+    let count = old.extract_frames(&input, &info, &frames_dir, &ctx).unwrap();
+
+    assert_eq!(count, 10);
+    assert_eq!(fs::read_dir(&frames_dir).unwrap().count(), 10);
+}

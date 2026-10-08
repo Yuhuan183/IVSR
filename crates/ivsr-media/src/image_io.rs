@@ -10,7 +10,7 @@ use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, PngEncoder};
 use image::codecs::webp::WebPEncoder;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
-use ivsr_core::{Error, FormatInfo, ImageEncodeOptions, ImageInfo, ImageIo, MediaKind, Result};
+use ivsr_core::{Error, FormatInfo, Frame, ImageEncodeOptions, ImageInfo, ImageIo, MediaKind, Result};
 
 /// One supported raster format.
 struct Format {
@@ -66,7 +66,7 @@ impl RasterIo {
             .map_err(|e| Error::io_at("read", path, e))
     }
 
-    fn decode(path: &Path) -> Result<DynamicImage> {
+    fn read(path: &Path) -> Result<DynamicImage> {
         let mut reader = Self::open(path)?;
         reader.no_limits();
         reader.decode().map_err(|e| decode_error(path, e))
@@ -105,7 +105,34 @@ impl ImageIo for RasterIo {
         let format = by_id(&opts.format)
             .filter(|f| f.encode)
             .ok_or_else(|| Error::UnsupportedFormat(format!("cannot encode `{}`", opts.format)))?;
-        let mut image = Self::decode(src)?;
+        let mut image = Self::read(src)?;
+        if let Some((w, h)) = opts.resize.filter(|&(w, h)| (w, h) != (image.width(), image.height())) {
+            image = resize(&image, w, h)?;
+        }
+        encode(&image, dst, format, opts.quality)
+    }
+
+    fn decode(&self, path: &Path, size: Option<(u32, u32)>) -> Result<Frame> {
+        let mut image = Self::read(path)?;
+        let has_alpha = image.color().has_alpha();
+        // Resample before narrowing to 8 bits, so 16-bit sources keep their precision.
+        if let Some((w, h)) = size.filter(|&(w, h)| (w, h) != (image.width(), image.height())) {
+            image = resize(&image, w, h)?;
+        }
+        let rgba = image.into_rgba8();
+        Ok(Frame { width: rgba.width(), height: rgba.height(), pixels: rgba.into_raw(), has_alpha })
+    }
+
+    fn encode(&self, frame: &Frame, dst: &Path, opts: &ImageEncodeOptions) -> Result<()> {
+        let format = by_id(&opts.format)
+            .filter(|f| f.encode)
+            .ok_or_else(|| Error::UnsupportedFormat(format!("cannot encode `{}`", opts.format)))?;
+        let rgba = image::RgbaImage::from_raw(frame.width, frame.height, frame.pixels.clone())
+            .ok_or_else(|| Error::Invalid(format!("frame of {}x{} has {} bytes", frame.width, frame.height, frame.pixels.len())))?;
+        let mut image = match frame.has_alpha {
+            true => DynamicImage::ImageRgba8(rgba),
+            false => DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(rgba).to_rgb8()),
+        };
         if let Some((w, h)) = opts.resize.filter(|&(w, h)| (w, h) != (image.width(), image.height())) {
             image = resize(&image, w, h)?;
         }
@@ -192,6 +219,26 @@ mod tests {
         RasterIo.convert(&src, &dst, &opts).unwrap();
         let info = RasterIo.probe(&dst).unwrap();
         assert_eq!((info.width, info.height, info.format.as_str(), info.has_alpha), (3, 2, "jpg", false));
+    }
+
+    #[test]
+    fn frames_decode_resampled_and_encode_without_alpha_when_the_source_had_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let rgba = dir.path().join("rgba.png");
+        sample(&rgba, 6, 4);
+        let frame = RasterIo.decode(&rgba, Some((12, 8))).unwrap();
+        assert_eq!((frame.width, frame.height, frame.pixels.len(), frame.has_alpha), (12, 8, 12 * 8 * 4, true));
+
+        let rgb = dir.path().join("rgb.png");
+        image::RgbImage::from_pixel(3, 2, image::Rgb([10, 20, 30])).save(&rgb).unwrap();
+        let frame = RasterIo.decode(&rgb, None).unwrap();
+        assert!(!frame.has_alpha);
+        assert_eq!(&frame.pixels[..4], &[10, 20, 30, 255]);
+        let out = dir.path().join("out.png");
+        RasterIo.encode(&frame, &out, &ImageEncodeOptions { format: "png".into(), quality: None, resize: None }).unwrap();
+        let info = RasterIo.probe(&out).unwrap();
+        assert_eq!((info.width, info.height, info.has_alpha), (3, 2, false));
+        assert_eq!(RasterIo.decode(&out, None).unwrap(), frame);
     }
 
     #[test]

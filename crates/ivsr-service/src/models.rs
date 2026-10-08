@@ -160,11 +160,10 @@ fn remote_catalog(url: &str, cache_dir: &Path, http: &dyn HttpClient, refresh: b
         .and_then(|m| m.modified())
         .is_ok_and(|t| t.elapsed().unwrap_or(Duration::MAX) < CATALOG_TTL);
     let read_cache = || -> Option<Catalog> { serde_json::from_slice(&fs::read(&cached).ok()?).ok() };
-    if fresh && !refresh {
-        if let Some(c) = read_cache() {
+    if fresh && !refresh
+        && let Some(c) = read_cache() {
             return Ok(c);
         }
-    }
     match ivsr_update::http::get_json::<Catalog>(http, url, &[]) {
         Ok(catalog) => {
             let _ = fs::create_dir_all(cache_dir);

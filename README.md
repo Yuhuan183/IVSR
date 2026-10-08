@@ -6,9 +6,9 @@
 
 ## 需求
 
-- Rust 1.85+
+- Rust 1.88+
 - ffmpeg / ffprobe 在 `PATH` 上 (只有處理影片時需要)
-- 桌面版另需 Node 22+ 與 pnpm
+- 桌面版另需 Rust 1.90+、Node 22+ 與 pnpm
 
 ## 建置
 
@@ -34,10 +34,24 @@ ivsr -p tile=256 -p tta=true big.png     # 引擎參數 (見 ivsr engines show r
 ivsr clip.mp4 -m realesr-animevideov3 --codec h265 --crf 20
 ivsr -n shots/                           # dry run: 只顯示會產生哪些檔案
 ivsr --json clip.mp4                     # 每行一個 JSON 事件, 方便腳本整合
+ivsr --post icon.png                     # 高畫質化後以內建順序後製 (階調還原、細節銳化...)
+ivsr --pre --post=tone-restore clip.mp4  # 影片也適用; --post=a,b 依序指定步驟
+ivsr --post -F detail-sharpen.amount=1.4 gems/   # 調整單一濾鏡參數
 ivsr --lang zh-TW engines                # 介面語言 (也可用 IVSR_LANG 或 ui.language)
 ```
 
 `ivsr <檔案>` 等同 `ivsr upscale <檔案>`; 完整選項見 `ivsr upscale --help`. 處理中按 Ctrl-C 會取消並清除暫存檔, 再按一次則立即結束.
+
+### 前處理與後製
+
+濾鏡分兩段: 前處理在高畫質化前處理原圖, 後製以最終尺寸處理高畫質結果, 並以送進引擎的那張圖為參考. 每段有總開關和有序的步驟, 預設都關閉. 內建濾鏡與原理見 [docs/SPRITE_POST_PROCESSING.md](docs/SPRITE_POST_PROCESSING.md).
+
+```sh
+ivsr filters                             # 濾鏡、可用階段與目前的處理鏈
+ivsr filters show detail-sharpen         # 參數說明
+ivsr filters apply out/icon_x4.png       # 只套用濾鏡 (圖片); 原圖自動從歷史紀錄找回, 或用 --reference 指定
+ivsr config set filters.post.enabled true   # 預設開啟後製
+```
 
 ### 模型管理
 
@@ -51,29 +65,49 @@ ivsr models bench --all                  # 在這台電腦測速, 結果用於�
 ivsr models import my-net --param my.param --bin my.bin --scale 4   # 匯入本機 ncnn 模型 (會實際驗證倍率)
 ivsr models remove my-net                # 移除下載或匯入的模型 (內建模型不可單獨移除)
 ivsr system                              # OS、CPU、記憶體、引擎可用的 GPU
+ivsr update                              # 檢查新版本, 有的話詢問是否安裝 (CLI 不會自行提醒)
 ```
 
 額外的模型型錄可用 `ivsr config set models.catalogs '["https://example.com/catalog.json"]'` 加入, 格式同 [`crates/ivsr-engine-realesrgan/src/catalog.json`](crates/ivsr-engine-realesrgan/src/catalog.json).
 
 ## 桌面版
 
-- **放大**: 拖放或選擇檔案 / 資料夾, 依模型的本機測速顯示每個項目的預估時間.
-- **瀏覽**: 列出 app 與 CLI 完成的成果. 比較檢視器有三種模式: 滑桿 (可拖曳分隔線)、並排雙窗格、淡入淡出; 兩側同步縮放平移, 影片同步播放. 快捷鍵: `1`/`2`/`3` 切換模式、滾輪縮放、`0` 符合視窗、`←`/`→` 上下一個、空白鍵播放.
+- **高畫質化**: 拖放或選擇檔案 / 資料夾, 依模型的本機測速顯示每個項目的預估時間.
+- **前處理 / 後製**: 設定面板可開關兩段處理, 並調整步驟的順序、開關與參數; 設定與 CLI 共用.
+- **瀏覽**: 列出 app 與 CLI 完成的成果. 比較檢視器有三種模式: 滑桿 (可拖曳分隔線)、並排雙窗格、淡入淡出; 兩側同步縮放平移, 影片同步播放. 快捷鍵: `1`/`2`/`3` 切換模式、滾輪縮放、`0` 符合視窗、`←`/`→` 上下一個、空白鍵播放、`F` 濾鏡面板、`\` 開關濾鏡. 濾鏡面板可對原圖或高畫質結果試套濾鏡, 並選擇對照未套用的同一張圖或另一側; 畫面左上角隨時標示濾鏡是否已套用. 可另存套用後的圖, 或把步驟設為工作流預設.
 - **模型**: 硬體資訊、模型安裝 / 更新 / 測速 / 移除 / 匯入, 以及硬體需求與 GPU 建議.
-- 右上角可切換語言 (跟隨系統 / English / 正體中文), 設定與 CLI 共用.
+- 右上角可切換語言 (跟隨系統 / English / 正體中文). 文字大小圖示可調整介面大小 (100%–200%, 也可用 Cmd/Ctrl 加 `+` `-` `0`), 比較檢視器的工具列也有同一個按鈕; 視窗變窄或介面放大時版面會自動調整, 設定面板改為側拉抽屜. 設定與 CLI 共用.
+- 設定面板與濾鏡面板可拖曳左緣調整寬度 (按兩下恢復預設).
+- 倍率可選 ×1: 模型以原生倍率處理後縮回原尺寸, 尺寸不變但細節更清楚.
+- 更新: 啟動時自動檢查, 標題列也可手動檢查. 有新版本時標題列與頁面頂端會提示, 點擊後先詢問, 同意才下載安裝 (AppImage 直接替換並重新啟動, 其他平台開啟安裝檔).
+
+## 發版
+
+```sh
+scripts/bump-version.sh 0.2.0             # 同步 Cargo workspace 與 package.json 的版本
+git commit -am "Release v0.2.0"
+git tag v0.2.0 && git push origin HEAD v0.2.0
+```
+
+推送 tag 後, GitHub Actions 會為 macOS (Apple Silicon)、Windows x64、Linux x64 建置 CLI 與桌面版, 上傳到 draft release, 並檢查自動更新能正確選到每個平台的檔案. release note 由兩段組成: 安裝說明, 加上 GitHub 依 PR 標籤 (`enhancement`、`bug`、`documentation`) 分類列出自上一版以來合併的 PR (見 `.github/release.yml`; 直接 push 到 main 的 commit 不會列出). 確認 draft 內容後手動發布, 已安裝的 CLI 與桌面版才會收到更新. 版本含 `-` (例如 `v0.2.0-beta.1`) 會標成 pre-release, 只有 `update.channel = "beta"` 的使用者看得到, 適合先試跑流程. 細節見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 的「產品自身的發布慣例」.
 
 ## 專案結構
 
 ```text
 crates/
-  ivsr-core/               介面 (Engine, ImageIo, VideoIo, Reporter, ParamSpec)、模型 / 型錄型別、處理流程
+  ivsr-core/               介面 (Engine, Filter, ImageIo, VideoIo, Reporter, ParamSpec)、模型 / 型錄型別、處理流程
   ivsr-engine-realesrgan/  Real-ESRGAN 引擎實作與內建模型型錄 (catalog.json)
+  ivsr-filters/            內建前處理 / 後製濾鏡 (prototype/ 為最初的 Python 原型)
   ivsr-media/              圖片 (image-rs) 與影片 (ffmpeg) I/O 實作
   ivsr-update/             獨立的更新框架 (ReleaseSource, GitHub, 下載驗證, 解壓, 自我替換)
   ivsr-service/            組合根: 設定、語言、registry、規劃、佇列、模型管理、測速、歷史紀錄、更新策略
   ivsr-cli/                ivsr 命令列 (含訊息翻譯表)
-apps/desktop/               Tauri 2 + Svelte 5 桌面版 (src/lib/i18n 為翻譯字典)
-docs/ARCHITECTURE.md        架構文件
+apps/desktop/              Tauri 2 + Svelte 5 桌面版 (src/lib/i18n 為翻譯字典)
+scripts/                   開發用工具 (bump-version.sh)
+.github/workflows/         CI (三平台測試) 與發版流程
+docs/
+  ARCHITECTURE.md          架構文件
+  SPRITE_POST_PROCESSING.md 遊戲 Sprite / 圖標超分後處理指南
 ```
 
 ## 授權

@@ -7,6 +7,7 @@ pub mod bench;
 pub mod config;
 pub mod engines;
 mod error;
+pub mod filtering;
 pub mod history;
 pub mod i18n;
 pub mod models;
@@ -26,17 +27,18 @@ use std::time::Instant;
 
 use ivsr_core::pipeline::{self, Toolkit};
 use ivsr_core::{
-    CancelToken, EngineCaps, EngineInfo, JobOutcome, JobSpec, MediaKind, ModelInfo, ParamSpec, ParamValues, Reporter,
-    ToolStatus, UpscaleSettings,
+    CancelToken, EngineCaps, EngineInfo, FilterStage, FilterStep, JobOutcome, JobSpec, MediaKind, ModelInfo, ParamSpec,
+    ParamValues, Reporter, ToolStatus, UpscaleSettings,
 };
 use ivsr_update::{HttpClient, UreqClient};
 use serde::Serialize;
 
-pub use config::{Config, ConflictPolicy};
+pub use config::{Config, ConflictPolicy, FiltersConfig};
 pub use advice::{Advice, Fit};
 pub use bench::BenchmarkRecord;
 pub use engines::{InstallManifest, InstallProgress, InstallReport};
 pub use error::{Error, Result};
+pub use filtering::{FilterJob, FilterJobRequest, FilterOutcome, FilterView, PreparedFilters};
 pub use history::HistoryEntry;
 pub use i18n::Lang;
 pub use models::{ImportRequest, ModelEntry, ModelOverview, ModelStatus};
@@ -196,6 +198,7 @@ impl Service {
             engine: engine.as_ref(),
             images: self.registry.images().as_ref(),
             video: Some(self.registry.video().as_ref()),
+            filters: self.registry.filters(),
         };
         let started = Instant::now();
         let outcome = pipeline::run(&toolkit, spec, &self.work_dir(), reporter, cancel)?;
@@ -339,6 +342,55 @@ impl Service {
 
     pub fn thumbnail_dir(&self) -> PathBuf {
         self.paths.cache_dir.join("thumbs")
+    }
+
+    pub fn filter_views(&self) -> Vec<FilterView> {
+        self.registry.filters().iter().map(|f| FilterView { info: f.info(), params: f.params() }).collect()
+    }
+
+    /// The steps `stage` runs when switched on: configured, else the built-in order.
+    pub fn filter_steps(&self, stage: FilterStage) -> Vec<FilterStep> {
+        self.config.filters.chain(stage).steps.clone().unwrap_or_else(|| self.registry.default_filter_steps(stage))
+    }
+
+    /// Plans stand-alone filtering of the images named by `inputs`. Without an
+    /// explicit reference, each result's original is looked up in the history.
+    pub fn prepare_filters(&self, inputs: &[PathBuf], req: &FilterJobRequest) -> Result<PreparedFilters> {
+        let steps = req.steps.clone().unwrap_or_else(|| self.filter_steps(req.stage));
+        let defaults = (self.config.output.conflict, self.config.output.image_quality);
+        let originals: std::collections::HashMap<PathBuf, PathBuf> = match req.reference {
+            Some(_) => Default::default(),
+            None => self.history().into_iter().map(|e| (e.output, e.input)).collect(),
+        };
+        let reference_for = |result: &Path| originals.get(result).filter(|p| p.is_file()).cloned();
+        filtering::prepare(&self.registry, inputs, req, steps, defaults, reference_for)
+    }
+
+    pub fn run_filters(&self, prepared: &PreparedFilters, job: &FilterJob) -> Result<FilterOutcome> {
+        let planned = &job.planned;
+        self.filter_image(&planned.input, &planned.output, prepared.stage, &prepared.steps, job.reference.as_deref(), Some(prepared.quality))
+    }
+
+    /// Runs `steps` on one image and writes `output` in the format its extension names.
+    pub fn filter_image(
+        &self,
+        input: &Path,
+        output: &Path,
+        stage: FilterStage,
+        steps: &[FilterStep],
+        reference: Option<&Path>,
+        quality: Option<u8>,
+    ) -> Result<FilterOutcome> {
+        filtering::filter_image(&self.registry, input, output, stage, steps, reference, quality, &self.work_dir())
+    }
+
+    /// A cached PNG of `input` filtered by `steps`, for frontends to show.
+    pub fn filter_preview(&self, input: &Path, stage: FilterStage, steps: &[FilterStep], reference: Option<&Path>) -> Result<PathBuf> {
+        filtering::preview(&self.registry, input, stage, steps, reference, &self.preview_dir(), &self.work_dir())
+    }
+
+    pub fn preview_dir(&self) -> PathBuf {
+        self.paths.cache_dir.join("previews")
     }
 
     pub fn install_engine(

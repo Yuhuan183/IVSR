@@ -312,7 +312,7 @@
   .details {
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 16px;
     padding-top: 8px;
     border-top: 1px solid var(--border);

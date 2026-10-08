@@ -1,37 +1,23 @@
 <script lang="ts">
-  import { bytes } from "../format";
+  // Announces a new version on every page. Updating goes through the dialog.
   import { t } from "../i18n/index.svelte";
   import { updates } from "../stores/updates.svelte";
   import Icon from "./Icon.svelte";
-  import ProgressBar from "./ProgressBar.svelte";
 
   const view = $derived(updates.available);
-  const dl = $derived(updates.download);
 </script>
 
 {#if view && !updates.dismissed}
-  <div class="banner">
+  <div class="banner" role="status">
     <Icon name="sparkle" />
     <div class="text">
       <strong>{t("update.available", { version: view.latest })}</strong>
-      <span class="muted">
-        {t("update.current", { version: view.current })}{view.asset ? " " + t("update.installer_size", { size: bytes(view.asset.size) }) : ""}
-      </span>
-      {#if dl}
-        <ProgressBar value={dl.total ? dl.received / dl.total : 0} />
-      {/if}
-      {#if updates.installer && !dl}
-        <span class="muted">{t("update.installer_opened")}</span>
-      {/if}
-      {#if updates.error}<span class="err">{updates.error}</span>{/if}
+      <span class="muted">{t("update.current", { version: view.current })}</span>
     </div>
-    {#if view.asset}
-      <button class="primary" disabled={dl !== null} onclick={() => updates.fetch()}>
-        <Icon name="download" /> {dl ? t("update.downloading") : t("update.download_install")}
-      </button>
-    {/if}
-    <button class="ghost" onclick={() => updates.skip()}>{t("update.skip")}</button>
-    <button class="ghost" title={t("update.later")} onclick={() => (updates.dismissed = true)}><Icon name="x" /></button>
+    <button class="primary" onclick={() => updates.ask()}><Icon name="download" /> {t("update.update")}</button>
+    <button class="ghost" title={t("update.later")} aria-label={t("update.later")} onclick={() => (updates.dismissed = true)}>
+      <Icon name="x" />
+    </button>
   </div>
 {/if}
 
@@ -40,8 +26,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    margin: 10px 14px 0;
     padding: 10px 14px;
-    margin: 0 0 12px;
     border-radius: var(--radius);
     background: color-mix(in srgb, var(--accent-2) 9%, var(--panel));
     border: 1px solid color-mix(in srgb, var(--accent-2) 35%, var(--border));
@@ -54,8 +40,5 @@
     gap: 3px;
     color: var(--text);
     min-width: 0;
-  }
-  .err {
-    color: var(--err);
   }
 </style>

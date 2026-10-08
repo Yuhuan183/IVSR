@@ -365,3 +365,194 @@ fn finished_jobs_are_recorded_in_history() {
     assert_eq!(history.len(), 1);
     assert_eq!((history[0].input.clone(), history[0].width, history[0].source_width), (input, 16, 4));
 }
+
+fn post_on(steps: Option<Vec<ivsr_core::FilterStep>>) -> Option<ivsr_core::FilterChain> {
+    Some(ivsr_core::FilterChain { enabled: true, steps })
+}
+
+fn upscale(svc: &Service, input: &Path, req: &JobRequest) -> JobOutcome {
+    let prepared = svc.prepare(&[input.to_path_buf()], req).unwrap();
+    let (_, spec) = prepared.runnable().next().unwrap();
+    svc.run(&spec, &prepared.engine, &ivsr_core::progress::NullReporter, &CancelToken::new()).unwrap()
+}
+
+#[test]
+fn post_processing_changes_output_only_when_its_switch_is_on() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    write_fake_engine(&svc.paths().engine_dir("realesrgan"));
+    let input = tmp.path().join("p.png");
+    sample_png(&input, 12, 8);
+    // x2 makes ivsr resample the stand-in engine's copy, so filters run at the final size.
+    let req = |suffix: &str, post| JobRequest { scale: Some(2.0), suffix: Some(suffix.into()), post, ..Default::default() };
+
+    let plain = upscale(&svc, &input, &req("_plain", None));
+    let filtered = upscale(&svc, &input, &req("_post", post_on(None)));
+    let switched_off = ivsr_core::FilterChain { enabled: false, steps: Some(vec![ivsr_core::FilterStep::new("saturation")]) };
+    let off = upscale(&svc, &input, &req("_off", Some(switched_off)));
+
+    assert_eq!(fs::read(&plain.output).unwrap(), fs::read(&off.output).unwrap(), "switch off = no filtering");
+    let images = svc.registry().images();
+    let (a, b) = (images.decode(&plain.output, None).unwrap(), images.decode(&filtered.output, None).unwrap());
+    assert_eq!((b.width, b.height), (24, 16));
+    assert_ne!(a.pixels, b.pixels);
+}
+
+#[test]
+fn filter_chains_are_validated_when_preparing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    write_fake_engine(&svc.paths().engine_dir("realesrgan"));
+    let input = tmp.path().join("v.png");
+    sample_png(&input, 4, 4);
+    let unknown = JobRequest { post: post_on(Some(vec![ivsr_core::FilterStep::new("nope")])), ..Default::default() };
+    let err = svc.prepare(std::slice::from_ref(&input), &unknown).err().unwrap().to_string();
+    assert!(err.contains("unknown filter `nope`"), "{err}");
+    let wrong_stage = JobRequest { pre: post_on(Some(vec![ivsr_core::FilterStep::new("tone-restore")])), ..Default::default() };
+    let err = svc.prepare(&[input], &wrong_stage).err().unwrap().to_string();
+    assert!(err.contains("cannot run as pre-processing"), "{err}");
+}
+
+#[test]
+fn video_frames_are_pre_and_post_processed_and_encoded_at_the_final_size() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    let video = svc.registry().video().clone();
+    if video.status().problem().is_some() {
+        eprintln!("ffmpeg not available, skipping");
+        return;
+    }
+    write_fake_engine(&svc.paths().engine_dir("realesrgan"));
+    let input = tmp.path().join("clip.mp4");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10", "-t", "1"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+        .arg(&input)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let req = |suffix: &str, on: bool| JobRequest {
+        scale: Some(2.0),
+        suffix: Some(suffix.into()),
+        pre: on.then_some(ivsr_core::FilterChain { enabled: true, steps: None }),
+        post: if on { post_on(None) } else { None },
+        ..Default::default()
+    };
+
+    let filtered = upscale(&svc, &input, &req("_post", true));
+    let plain = upscale(&svc, &input, &req("_plain", false));
+
+    let info = video.probe(&filtered.output).unwrap();
+    assert_eq!((info.width, info.height, info.estimated_frames()), (128, 96, 10));
+    let first_frame = |path: &Path, dir: &str| {
+        let dir = tmp.path().join(dir);
+        fs::create_dir_all(&dir).unwrap();
+        let ctx = ivsr_core::TaskContext { cancel: &CancelToken::new(), progress: &|_| {}, log: &|_, _| {} };
+        video.extract_frames(path, &video.probe(path).unwrap(), &dir, &ctx).unwrap();
+        svc.registry().images().decode(&dir.join("00000001.png"), None).unwrap()
+    };
+    assert_ne!(first_frame(&filtered.output, "a").pixels, first_frame(&plain.output, "b").pixels);
+    assert!(fs::read_dir(tmp.path().join("work")).unwrap().next().is_none(), "work dir cleaned");
+}
+
+#[test]
+fn standalone_filtering_finds_the_original_of_a_result_in_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    write_fake_engine(&svc.paths().engine_dir("realesrgan"));
+    let input = tmp.path().join("s.png");
+    sample_png(&input, 6, 4);
+    let result = upscale(&svc, &input, &JobRequest::default()).output;
+    let clip = tmp.path().join("clip.mp4");
+    fs::write(&clip, b"not decoded while planning").unwrap();
+
+    let prepared = svc.prepare_filters(&[result.clone(), clip], &FilterJobRequest::new(ivsr_core::FilterStage::Post)).unwrap();
+    let runnable: Vec<_> = prepared.runnable().collect();
+    assert_eq!(runnable.len(), 1, "videos are not filtered stand-alone");
+    let job = runnable[0];
+    assert_eq!(job.reference.as_deref(), Some(input.as_path()));
+    assert_eq!(job.planned.output, tmp.path().join("s_x4_post.png"));
+    let outcome = svc.run_filters(&prepared, job).unwrap();
+    // The stand-in engine copies, so the "result" is 6x4.
+    assert_eq!((outcome.width, outcome.height), (6, 4));
+    assert_ne!(fs::read(&outcome.output).unwrap(), fs::read(&result).unwrap());
+
+    let preview = svc.filter_preview(&result, ivsr_core::FilterStage::Post, &prepared.steps, Some(&input)).unwrap();
+    assert!(preview.starts_with(svc.preview_dir()));
+    assert_eq!(svc.filter_preview(&result, ivsr_core::FilterStage::Post, &prepared.steps, Some(&input)).unwrap(), preview);
+}
+
+#[test]
+fn standalone_reference_must_exist_and_a_single_file_fits_a_single_input() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    let (a, b, original) = (tmp.path().join("a.png"), tmp.path().join("b.png"), tmp.path().join("orig.png"));
+    for p in [&a, &b, &original] {
+        sample_png(p, 4, 4);
+    }
+    let request = |reference: &Path| FilterJobRequest {
+        reference: Some(reference.to_path_buf()),
+        ..FilterJobRequest::new(ivsr_core::FilterStage::Post)
+    };
+
+    let err = svc.prepare_filters(std::slice::from_ref(&a), &request(&tmp.path().join("orignals"))).err().unwrap();
+    assert!(err.to_string().contains("orignals"), "{err}");
+    let err = svc.prepare_filters(&[a.clone(), b], &request(&original)).err().unwrap();
+    assert!(err.to_string().contains("directory"), "{err}");
+    let one = svc.prepare_filters(&[a], &request(&original)).unwrap();
+    assert_eq!(one.jobs[0].reference.as_deref(), Some(original.as_path()));
+}
+
+/// Serves a release listing with v99.0.0 for every request.
+struct ReleaseHost;
+
+impl HttpClient for ReleaseHost {
+    fn get(&self, _: &str, _: &[(&str, &str)]) -> ivsr_update::Result<HttpResponse> {
+        let body = br#"[{"tag_name": "v99.0.0", "draft": false, "prerelease": false, "assets": []}]"#.to_vec();
+        Ok(HttpResponse { status: 200, content_length: Some(body.len() as u64), body: Box::new(Cursor::new(body)) })
+    }
+}
+
+#[test]
+fn a_skipped_version_is_not_announced_by_automatic_checks_but_explicit_checks_still_see_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path()).with_http(Arc::new(ReleaseHost));
+    let updates = svc.updates(Flavor::Desktop, "0.1.0");
+    let latest = match updates.check().unwrap() {
+        ivsr_update::UpdateCheck::Available { latest, .. } => latest,
+        other => panic!("expected an update, got {other:?}"),
+    };
+    updates.skip(&latest).unwrap();
+
+    let automatic = updates.reminder(updates.check().unwrap());
+    assert!(matches!(automatic, ivsr_update::UpdateCheck::UpToDate { .. }), "{automatic:?}");
+    assert!(matches!(updates.check().unwrap(), ivsr_update::UpdateCheck::Available { .. }));
+}
+
+#[test]
+fn a_reference_directory_is_matched_by_relative_path_then_by_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let svc = service(tmp.path());
+    let (results, originals) = (tmp.path().join("results"), tmp.path().join("originals"));
+    for dir in ["a", "b"] {
+        fs::create_dir_all(results.join(dir)).unwrap();
+        fs::create_dir_all(originals.join(dir)).unwrap();
+        sample_png(&results.join(dir).join("hero.png"), 4, 4);
+        sample_png(&originals.join(dir).join("hero.png"), 2, 2);
+    }
+    sample_png(&results.join("top.png"), 4, 4);
+    sample_png(&originals.join("top.png"), 2, 2);
+    let request = FilterJobRequest {
+        reference: Some(originals.clone()),
+        recursive: true,
+        ..FilterJobRequest::new(ivsr_core::FilterStage::Post)
+    };
+
+    let prepared = svc.prepare_filters(std::slice::from_ref(&results), &request).unwrap();
+
+    for job in &prepared.jobs {
+        let rel = job.planned.input.strip_prefix(&results).unwrap();
+        assert_eq!(job.reference.as_deref(), Some(originals.join(rel).as_path()), "{}", rel.display());
+    }
+    assert_eq!(prepared.jobs.len(), 3);
+}

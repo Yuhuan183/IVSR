@@ -6,10 +6,13 @@
   import ModelsView from "./lib/components/ModelsView.svelte";
   import ProcessView from "./lib/components/ProcessView.svelte";
   import TitleBar from "./lib/components/TitleBar.svelte";
+  import UpdateBanner from "./lib/components/UpdateBanner.svelte";
+  import UpdateDialog from "./lib/components/UpdateDialog.svelte";
   import Viewer from "./lib/components/Viewer.svelte";
   import { i18n, t } from "./lib/i18n/index.svelte";
   import { ipc } from "./lib/ipc";
   import { app } from "./lib/stores/app.svelte";
+  import { layout } from "./lib/stores/layout.svelte";
   import { models } from "./lib/stores/models.svelte";
   import { nav } from "./lib/stores/nav.svelte";
   import { queue } from "./lib/stores/queue.svelte";
@@ -24,11 +27,28 @@
     document.title = "IVSR";
   });
 
+  $effect(() => {
+    void layout.applyScale(layout.scale);
+  });
+
+  // Content scale: Cmd/Ctrl with + / - / 0, like a browser's page zoom.
+  function scaleKey(e: KeyboardEvent) {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (e.key === "=" || e.key === "+") layout.stepScale(1);
+    else if (e.key === "-" || e.key === "_") layout.stepScale(-1);
+    else if (e.key === "0") layout.stepScale(0);
+    else return;
+    e.preventDefault();
+  }
+
   onMount(() => {
     let unlisten: (() => void) | undefined;
     (async () => {
       await app.load();
-      if (app.boot) settings.load(app.boot.config);
+      if (app.boot) {
+        settings.load(app.boot.config);
+        layout.load(app.boot.config);
+      }
       await queue.init();
       void queue.add(await ipc.takeLaunchInputs());
       if (app.boot?.update_configured) void updates.check(false);
@@ -52,6 +72,8 @@
   });
 </script>
 
+<svelte:window onkeydown={scaleKey} />
+
 {#if app.error && !app.boot}
   <div class="fatal">
     <h2>{t("app.start_failed")}</h2>
@@ -61,6 +83,7 @@
 {:else}
   <div class="shell">
     <TitleBar />
+    <UpdateBanner />
     <main class="main">
       {#if nav.view === "process"}
         <ProcessView />
@@ -79,6 +102,8 @@
   {#if viewer.current}
     <Viewer />
   {/if}
+
+  <UpdateDialog />
 {/if}
 
 <style>

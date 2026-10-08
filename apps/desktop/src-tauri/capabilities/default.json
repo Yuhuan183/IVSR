@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Main window: core IPC and native file pickers. Filesystem access stays in the Rust core.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": ["core:default", "core:webview:allow-set-webview-zoom", "dialog:allow-open", "dialog:allow-save"]
 }

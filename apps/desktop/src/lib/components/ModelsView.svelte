@@ -137,6 +137,7 @@
   }
   .toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
   }
@@ -164,6 +165,11 @@
   .update {
     color: var(--accent-2);
     font-weight: 600;
+  }
+  @media (max-width: 760px) {
+    .top {
+      grid-template-columns: 1fr;
+    }
   }
   .list {
     list-style: none;

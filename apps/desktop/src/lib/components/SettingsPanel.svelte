@@ -5,12 +5,23 @@
   import { nav } from "../stores/nav.svelte";
   import { app } from "../stores/app.svelte";
   import { settings } from "../stores/settings.svelte";
-  import type { AudioMode, ConflictPolicy } from "../types";
+  import type { AudioMode, ConflictPolicy, FilterStage } from "../types";
+  import { layout, PANEL } from "../stores/layout.svelte";
+  import FilterChainEditor from "./FilterChainEditor.svelte";
   import Icon from "./Icon.svelte";
   import ParamField from "./ParamField.svelte";
+  import Resizer from "./Resizer.svelte";
   import Section from "./Section.svelte";
+  import Switch from "./Switch.svelte";
 
-  const PRESET_SCALES = [2, 3, 4];
+  /** Closes the drawer the panel sits in on narrow windows. */
+  let { onclose }: { onclose?: () => void } = $props();
+
+  const PRESET_SCALES = [1, 2, 3, 4];
+  const STAGES: { stage: FilterStage; title: "filters.pre" | "filters.post"; hint: "filters.pre_hint" | "filters.post_hint" }[] = [
+    { stage: "pre", title: "filters.pre", hint: "filters.pre_hint" },
+    { stage: "post", title: "filters.post", hint: "filters.post_hint" },
+  ];
 
   let showAdvanced = $state(false);
 
@@ -53,7 +64,22 @@
   }
 </script>
 
-<aside class="panel">
+<aside class="panel" style:--w="{layout.panelWidth}px">
+  <Resizer
+    width={layout.panelWidth}
+    min={PANEL.min}
+    max={PANEL.max}
+    initial={PANEL.initial}
+    onresize={(w) => (layout.panelWidth = w)}
+    oncommit={() => layout.persist()}
+  />
+  <div class="scroll">
+  {#if onclose}
+    <div class="drawer-head">
+      <strong>{t("process.settings")}</strong>
+      <button class="ghost" title={t("common.close")} onclick={onclose}><Icon name="x" /></button>
+    </div>
+  {/if}
   <Section title={t("settings.model")}>
     {#snippet aside()}
       <button class="ghost small" onclick={() => (nav.view = "models")}>{t("settings.manage_models")}</button>
@@ -131,6 +157,28 @@
       {/if}
     </Section>
   {/if}
+
+  {#each STAGES as { stage, title, hint } (stage)}
+    {@const chain = settings.filters[stage]}
+    <Section title={t(title)}>
+      {#snippet aside()}
+        <Switch
+          checked={chain.enabled}
+          label={chain.enabled ? t("filters.on") : t("filters.off")}
+          onchange={(on) => settings.setFiltersEnabled(stage, on)}
+        />
+      {/snippet}
+      <p class="note">{t(hint)}</p>
+      <div class="chain" class:dim={!chain.enabled}>
+        <FilterChainEditor
+          {stage}
+          steps={settings.steps(stage)}
+          onchange={(steps) => settings.setSteps(stage, steps)}
+          onreset={chain.steps ? () => settings.setSteps(stage, null) : undefined}
+        />
+      </div>
+    </Section>
+  {/each}
 
   <Section title={t("settings.image_output")}>
     <div class="grid2">
@@ -219,13 +267,27 @@
       </select>
     </div>
   </Section>
+  </div>
 </aside>
 
 <style>
   .panel {
-    overflow-y: auto;
+    position: relative;
+    width: var(--w);
+    min-height: 0;
     background: var(--panel);
     border-left: 1px solid var(--border);
+  }
+  .scroll {
+    height: 100%;
+    overflow-y: auto;
+  }
+  .drawer-head {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 10px 16px;
+    border-bottom: 1px solid var(--border);
   }
   .models {
     display: flex;
@@ -277,7 +339,7 @@
   }
   .segmented {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -329,6 +391,19 @@
   }
   .small {
     font-size: 11.5px;
+  }
+  .chain.dim {
+    opacity: 0.55;
+  }
+  /* In the narrow-window drawer (see ProcessView). */
+  @media (max-width: 760px) {
+    .panel {
+      width: min(var(--w), 92vw);
+      height: 100%;
+    }
+    .drawer-head {
+      display: flex;
+    }
   }
   .disclosure {
     align-self: flex-start;

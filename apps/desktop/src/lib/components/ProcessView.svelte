@@ -11,7 +11,8 @@
   import Icon from "./Icon.svelte";
   import QueueList from "./QueueList.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
-  import UpdateBanner from "./UpdateBanner.svelte";
+
+  let drawer = $state(false);
 
   const engine = $derived(settings.engineView);
   const engineReady = $derived(engine?.status.state === "ready");
@@ -53,7 +54,6 @@
 
 <div class="process">
   <section class="workspace">
-    <UpdateBanner />
     {#if engine && !engineReady}
       <EngineSetup {engine} />
     {/if}
@@ -86,21 +86,68 @@
       {#if counts.active > 0}
         <button class="danger" onclick={() => queue.cancelAll()}><Icon name="stop" /> {t("process.stop")}</button>
       {/if}
+      <button class="settings-toggle" aria-expanded={drawer} onclick={() => (drawer = !drawer)}>
+        <Icon name="sliders" /> {t("process.settings")}
+      </button>
       <button class="primary" disabled={!engineReady || counts.pending === 0} onclick={() => queue.start(settings.request())}>
         <Icon name="play" />
         {counts.pending > 0 ? t("process.upscale_count", { count: counts.pending }) : t("process.upscale")}
       </button>
     </footer>
   </section>
-  <SettingsPanel />
+  <div class="settings" class:open={drawer}>
+    <SettingsPanel onclose={() => (drawer = false)} />
+  </div>
+  {#if drawer}<button class="scrim" aria-label={t("common.close")} onclick={() => (drawer = false)}></button>{/if}
 </div>
 
 <style>
   .process {
+    position: relative;
     height: 100%;
     display: grid;
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: 1fr auto;
     min-height: 0;
+  }
+  .settings {
+    display: flex;
+    min-height: 0;
+  }
+  .settings-toggle,
+  .scrim {
+    display: none;
+  }
+  /* Narrow windows (or a large content scale): settings slide over the queue. */
+  @media (max-width: 760px) {
+    .process {
+      grid-template-columns: 1fr;
+    }
+    .settings {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      max-width: 92vw;
+      box-shadow: var(--shadow);
+      transform: translateX(105%);
+      transition: transform 160ms ease-out;
+    }
+    .settings.open {
+      transform: none;
+    }
+    .settings-toggle {
+      display: inline-flex;
+    }
+    .scrim {
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: 7;
+      border: none;
+      border-radius: 0;
+      background: rgb(0 0 0 / 0.35);
+    }
   }
   .workspace {
     min-width: 0;
@@ -118,6 +165,7 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
   }

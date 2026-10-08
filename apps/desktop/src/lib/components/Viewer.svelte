@@ -7,7 +7,9 @@
   import { t } from "../i18n/index.svelte";
   import { ipc } from "../ipc";
   import { viewer, type CompareMode } from "../stores/viewer.svelte";
+  import FilterPanel from "./FilterPanel.svelte";
   import Icon from "./Icon.svelte";
+  import UiScaleControl from "./UiScaleControl.svelte";
 
   const MIN_ZOOM = 0.25;
   const MAX_ZOOM = 32;
@@ -39,9 +41,44 @@
   const resultW = $derived(item.resultSize?.[0] ?? natural?.[0] ?? fitW);
   const sourceW = $derived(item.sourceSize?.[0] ?? resultW);
   // Show real pixels once an image is magnified past 1:1 on screen.
-  const pixelOriginal = $derived((fitW * zoom * dpr) / sourceW > 1.5);
-  const pixelResult = $derived((fitW * zoom * dpr) / resultW > 1.5);
   const actual = $derived(resultW / dpr / fitW);
+
+  // The two image layers: the overlay (left) and the base (right). While the
+  // filter panel applies filters, the filtered picture takes the right and
+  // the left shows what it is compared against. Labels on the picture, the
+  // panel's summary and the fade buttons all read from here.
+  type Layer = { src: string; width: number; label: string };
+  const filterLayers = $derived.by((): [Layer, Layer] | null => {
+    if (!viewer.filtering) return null;
+    const original: Layer = { src: originalSrc, width: sourceW, label: t("viewer.original") };
+    const result: Layer = { src: resultSrc, width: resultW, label: t("viewer.result") };
+    const [target, other] = viewer.target === "result" ? [result, original] : [original, result];
+    const after: Layer = {
+      src: viewer.processed ? convertFileSrc(viewer.processed) : target.src,
+      width: target.width,
+      label: t("viewer.filters_with", { name: target.label }),
+    };
+    return [viewer.base === "unfiltered" ? target : other, after];
+  });
+  const layers = $derived.by((): [Layer, Layer] => {
+    const plain: [Layer, Layer] = [
+      { src: originalSrc, width: sourceW, label: t("viewer.original") },
+      { src: resultSrc, width: resultW, label: t("viewer.result") },
+    ];
+    // Until the first preview arrives, show (and label) the unfiltered pair.
+    return filterLayers && viewer.processed ? filterLayers : plain;
+  });
+  const sides = $derived((filterLayers ?? layers).map((l) => l.label) as [string, string]);
+
+  type Badge = { tone: "on" | "off" | "busy" | "err"; text: string };
+  const badge = $derived.by((): Badge | null => {
+    if (!viewer.panel || isVideo) return null;
+    if (!viewer.applied) return { tone: "off", text: t("viewer.filters_state_off") };
+    if (viewer.error) return { tone: "err", text: t("viewer.filters_state_failed") };
+    if (viewer.activeSteps === 0) return { tone: "off", text: t("viewer.filters_state_empty") };
+    if (viewer.busy || !viewer.processed) return { tone: "busy", text: t("viewer.filters_state_busy") };
+    return { tone: "on", text: t("viewer.filters_state_on", { count: viewer.activeSteps }) };
+  });
 
   const transform = $derived(`translate(${left + x}px, ${top + y}px) scale(${zoom})`);
 
@@ -178,9 +215,13 @@
   }
 
   function key(e: KeyboardEvent) {
-    if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+    if (["INPUT", "SELECT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) return;
+    // Cmd/Ctrl chords belong to the app (content scale), not the picture.
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
     if (k === "Escape") viewer.close();
+    else if (k === "f" || k === "F") viewer.panel = !viewer.panel;
+    else if (k === "\\" && !isVideo) viewer.toggleApplied();
     else if (k === "1") setMode("slider");
     else if (k === "2") setMode("split");
     else if (k === "3") setMode("fade");
@@ -213,25 +254,24 @@
 
 <svelte:window onkeydown={key} />
 
-{#snippet layer(which: "original" | "result")}
-  {@const src = which === "original" ? originalSrc : resultSrc}
-  {@const pixel = which === "original" ? pixelOriginal : pixelResult}
+{#snippet layer(index: 0 | 1)}
+  {@const shown = layers[index]}
   <div class="content" style:width="{fitW}px" style:height="{fitH}px" style:transform={transform}>
     {#if isVideo}
-      {#if which === "original"}
-        <video bind:this={originalVideo} {src} muted playsinline preload="auto" onloadedmetadata={(e) => restore(e.currentTarget)}></video>
+      {#if index === 0}
+        <video bind:this={originalVideo} src={originalSrc} muted playsinline preload="auto" onloadedmetadata={(e) => restore(e.currentTarget)}></video>
       {:else}
         <!-- Upscaled copy of the user's own video: captions, if any, live in the source file. -->
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video bind:this={resultVideo} {src} playsinline preload="auto" onloadedmetadata={onResultLoad} onended={() => (playing = false)}></video>
+        <video bind:this={resultVideo} src={resultSrc} playsinline preload="auto" onloadedmetadata={onResultLoad} onended={() => (playing = false)}></video>
       {/if}
     {:else}
       <img
-        {src}
-        alt={which === "original" ? t("viewer.original") : t("viewer.result")}
+        src={shown.src}
+        alt={shown.label}
         draggable="false"
-        class:pixel
-        onload={which === "result" ? onResultLoad : undefined}
+        class:pixel={(fitW * zoom * dpr) / shown.width > 1.5}
+        onload={shown.src === resultSrc ? onResultLoad : undefined}
       />
     {/if}
   </div>
@@ -260,14 +300,14 @@
           onclick={() => setMode(m.id)}
         >
           <Icon name={m.icon} size={14} />
-          {t(m.key)}
+          <span class="collapse">{t(m.key)}</span>
         </button>
       {/each}
     </div>
 
     <div class="tools">
       <button class="ghost" title={t("viewer.zoom_out")} onclick={() => zoomAt(paneW / 2, paneH / 2, zoom / 1.25)}><Icon name="minus" /></button>
-      <span class="zoom">{Math.round(zoom * 100)}%</span>
+      <span class="zoom" title={t("viewer.zoom_level")}>{Math.round(zoom * 100)}%</span>
       <button class="ghost" title={t("viewer.zoom_in")} onclick={() => zoomAt(paneW / 2, paneH / 2, zoom * 1.25)}><Icon name="plus" /></button>
       <button class="ghost" title={t("viewer.fit")} onclick={fit}><Icon name="fit" /></button>
       <button class="ghost text" title={t("viewer.actual_hint")} onclick={() => zoomAt(paneW / 2, paneH / 2, actual)}>1:1</button>
@@ -277,14 +317,28 @@
         <span class="faint count">{viewer.index + 1}/{viewer.list.length}</span>
         <button class="ghost" title={t("viewer.next")} onclick={() => viewer.step(1)}><Icon name="right" /></button>
       {/if}
+      <button
+        class="ghost filters-toggle"
+        class:on={viewer.panel}
+        class:applied={viewer.filtering}
+        aria-pressed={viewer.panel}
+        title={t("viewer.filters_hint")}
+        onclick={() => (viewer.panel = !viewer.panel)}
+      >
+        <Icon name="sparkle" /> <span class="collapse">{t("viewer.filters")}</span>
+        {#if viewer.filtering}<span class="dot" aria-hidden="true"></span>{/if}
+      </button>
       <button class="ghost" title={t("queue.reveal")} onclick={() => ipc.reveal(item.result)}><Icon name="reveal" /></button>
+      <span class="sep"></span>
+      <UiScaleControl />
       <button class="ghost" title={t("common.close")} onclick={() => viewer.close()}><Icon name="x" /></button>
     </div>
   </header>
 
+  <div class="body">
   <div class="stage" class:split={viewer.mode === "split"}>
     {#if viewer.mode === "split"}
-      {#each ["original", "result"] as const as which (which)}
+      {#each [0, 1] as const as which (which)}
         <div
           class="pane"
           role="presentation"
@@ -297,7 +351,7 @@
           onpointercancel={up}
         >
           {@render layer(which)}
-          <span class="label {which === 'original' ? 'left' : 'right'}">{which === "original" ? t("viewer.original") : t("viewer.result")}</span>
+          <span class="label {which === 0 ? 'left' : 'right'}">{layers[which].label}</span>
         </div>
       {/each}
     {:else}
@@ -312,13 +366,13 @@
         onpointerup={up}
         onpointercancel={up}
       >
-        {@render layer("result")}
+        {@render layer(1)}
         <div
           class="overlay"
           style:clip-path={viewer.mode === "slider" ? `inset(0 ${(1 - split) * 100}% 0 0)` : "none"}
           style:opacity={viewer.mode === "fade" ? 1 - mix : 1}
         >
-          {@render layer("original")}
+          {@render layer(0)}
         </div>
         {#if viewer.mode === "slider"}
           <div class="divider" style:left="{split * 100}%">
@@ -328,19 +382,34 @@
               onpointerdown={(e) => down(e, "split")}
             ><Icon name="slider" size={14} /></button>
           </div>
-          <span class="label left">{t("viewer.original")}</span>
-          <span class="label right">{t("viewer.result")}</span>
+          <span class="label left">{layers[0].label}</span>
+          <span class="label right">{layers[1].label}</span>
         {/if}
       </div>
     {/if}
+  </div>
+  {#if badge}
+    <button
+      class="badge {badge.tone}"
+      title={t("viewer.filters_apply_hint")}
+      aria-pressed={viewer.applied}
+      onclick={() => (viewer.applied = !viewer.applied)}
+    >
+      {#if badge.tone === "busy"}<span class="spinner" aria-hidden="true"></span>{:else}<span class="led" aria-hidden="true"></span>{/if}
+      {badge.text}
+    </button>
+  {/if}
+  {#if viewer.panel}
+    <FilterPanel {item} {sides} />
+  {/if}
   </div>
 
   <footer>
     {#if viewer.mode === "fade"}
       <div class="fade">
-        <button class="ghost text" onclick={() => (mix = 0)}>{t("viewer.original")}</button>
+        <button class="ghost text" onclick={() => (mix = 0)}>{layers[0].label}</button>
         <input type="range" min="0" max="1" step="0.01" bind:value={mix} aria-label={t("viewer.mix")} />
-        <button class="ghost text" onclick={() => (mix = 1)}>{t("viewer.result")}</button>
+        <button class="ghost text" onclick={() => (mix = 1)}>{layers[1].label}</button>
       </div>
     {/if}
     {#if isVideo}
@@ -436,14 +505,113 @@
     font-size: 12px;
     font-weight: 600;
   }
+  .tools .on {
+    color: var(--accent);
+  }
+  /* Narrow windows (or a large content scale): two header rows, icon-only modes. */
+  @media (max-width: 760px) {
+    header {
+      grid-template-columns: 1fr auto;
+      row-gap: 6px;
+    }
+    .info {
+      grid-column: 1 / -1;
+    }
+    .segmented {
+      justify-self: start;
+    }
+    .collapse {
+      display: none;
+    }
+    .zoom,
+    .count {
+      min-width: 36px;
+    }
+    .hint {
+      display: none;
+    }
+  }
   .sep {
     width: 1px;
     height: 18px;
     background: var(--border);
     margin: 0 6px;
   }
+  .body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .filters-toggle {
+    position: relative;
+  }
+  .filters-toggle .dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-2);
+    box-shadow: 0 0 0 2px var(--panel);
+  }
+  .badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 11px;
+    border-radius: 99px;
+    border: 1px solid transparent;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    background: rgb(0 0 0 / 0.6);
+    backdrop-filter: blur(6px);
+  }
+  .badge.on {
+    background: color-mix(in srgb, var(--accent) 85%, black);
+    border-color: color-mix(in srgb, var(--accent-2) 60%, transparent);
+  }
+  .badge.off {
+    color: #d5d8e2;
+  }
+  .badge.err {
+    background: color-mix(in srgb, var(--err) 75%, black);
+  }
+  .led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #8a92a8;
+  }
+  .badge.on .led {
+    background: var(--accent-2);
+    box-shadow: 0 0 6px var(--accent-2);
+  }
+  .badge.err .led {
+    background: #fff;
+  }
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid rgb(255 255 255 / 0.35);
+    border-top-color: #fff;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
   .stage {
     flex: 1;
+    min-width: 0;
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr;

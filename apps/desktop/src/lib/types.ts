@@ -1,7 +1,7 @@
 // Mirrors of the serde shapes exchanged with the Rust core (ivsr-service).
 
 export type MediaKind = "image" | "video";
-export type Stage = "preparing" | "decoding" | "upscaling" | "encoding" | "finalizing";
+export type Stage = "preparing" | "decoding" | "upscaling" | "filtering" | "encoding" | "finalizing";
 export type AudioMode = "auto" | "copy" | "reencode" | "drop";
 export type ConflictPolicy = "rename" | "overwrite" | "skip";
 export type Channel = "stable" | "beta";
@@ -30,6 +30,39 @@ export interface ParamSpec {
   kind: ParamKind;
   default: ParamValue;
   advanced: boolean;
+}
+
+export type FilterStage = "pre" | "post";
+
+export interface FilterInfo {
+  id: string;
+  name: Text;
+  description: Text;
+  stages: FilterStage[];
+  uses_reference: boolean;
+}
+
+export interface FilterView {
+  info: FilterInfo;
+  params: ParamSpec[];
+}
+
+export interface FilterStep {
+  id: string;
+  enabled: boolean;
+  params: Record<string, ParamValue>;
+}
+
+/** One stage's chain; `steps: null` follows the built-in order. */
+export interface FilterChain {
+  enabled: boolean;
+  steps?: FilterStep[] | null;
+}
+
+export interface FilterOutcome {
+  output: string;
+  width: number;
+  height: number;
 }
 
 export type CostClass = "light" | "medium" | "heavy";
@@ -239,9 +272,10 @@ export interface Config {
   };
   tools: { ffmpeg?: string | null; ffprobe?: string | null };
   engines: Record<string, EngineConfig>;
-  ui: { language: string };
+  ui: { language: string; scale: number; panel_width: number; filter_panel_width: number };
   models: { catalogs: string[] };
   history: { enabled: boolean; limit: number };
+  filters: { pre: FilterChain; post: FilterChain };
   update: {
     provider: string;
     repository: string;
@@ -265,6 +299,9 @@ export interface Bootstrap {
   config: Config;
   config_file: string;
   update_configured: boolean;
+  update_mode: "installer" | "appimage";
+  filters: FilterView[];
+  filter_defaults: { pre: FilterStep[]; post: FilterStep[] };
 }
 
 export interface InputItem {
@@ -294,6 +331,8 @@ export interface JobRequest {
   output?: string | null;
   suffix?: string;
   conflict?: ConflictPolicy;
+  pre?: FilterChain;
+  post?: FilterChain;
 }
 
 export interface Enqueued {
