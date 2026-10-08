@@ -325,9 +325,12 @@ impl Engine for RealEsrgan {
             )));
         }
 
+        // The tool runs in its own directory (it finds bundled models there),
+        // so every path handed to it must be absolute.
+        let absolute = |p: &Path| std::path::absolute(p).map_err(|e| Error::io_at("resolve", p, e));
         let mut cmd = process::command(&binary);
-        cmd.arg("-i").arg(task.input).arg("-o").arg(task.output);
-        cmd.arg("-m").arg(&model.dir).arg("-n").arg(&model.name).arg("-s").arg(task.scale.to_string());
+        cmd.arg("-i").arg(absolute(task.input)?).arg("-o").arg(absolute(task.output)?);
+        cmd.arg("-m").arg(absolute(&model.dir)?).arg("-n").arg(&model.name).arg("-s").arg(task.scale.to_string());
         cmd.arg("-f").arg("png");
         apply_params(&mut cmd, task)?;
         if let Some(dir) = binary.parent() {

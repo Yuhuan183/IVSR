@@ -28,14 +28,22 @@ fn home_with_engine(root: &Path) -> std::path::PathBuf {
 }
 
 fn ivsr(home: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_ivsr"))
-        .args(args)
+    command(home, args).output().unwrap()
+}
+
+/// Runs `ivsr` with `cwd` as its working directory.
+fn ivsr_in(home: &Path, cwd: &Path, args: &[&str]) -> Output {
+    command(home, args).current_dir(cwd).output().unwrap()
+}
+
+fn command(home: &Path, args: &[&str]) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ivsr"));
+    cmd.args(args)
         .env("IVSR_HOME", home)
         .env("IVSR_LANG", "en")
         .env_remove("IVSR_CONFIG")
-        .env("TMPDIR", home.join("tmp"))
-        .output()
-        .unwrap()
+        .env("TMPDIR", home.join("tmp"));
+    cmd
 }
 
 fn events(out: &Output) -> Vec<serde_json::Value> {
@@ -61,6 +69,29 @@ fn default_command_upscales_with_json_events() {
     assert_eq!((done["outcome"]["width"].as_u64(), done["outcome"]["height"].as_u64()), (Some(16), Some(12)));
     let written = image::open(tmp.path().join("pic_x2.jpg")).unwrap();
     assert_eq!((written.width(), written.height()), (16, 12));
+}
+
+#[test]
+fn relative_paths_resolve_against_the_working_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = home_with_engine(tmp.path());
+    let shots = tmp.path().join("shots");
+    fs::create_dir_all(&shots).unwrap();
+    image::RgbImage::new(8, 6).save(shots.join("pic.png")).unwrap();
+
+    // `ivsr pic.png` and `-o out/` typed in a shell inside shots/.
+    let out = ivsr_in(&home, &shots, &["pic.png", "-s", "2", "-o", "out"]);
+
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let written = image::open(shots.join("out/pic_x2.png")).unwrap();
+    assert_eq!((written.width(), written.height()), (16, 12));
+    // History keeps absolute paths so the desktop app can find the pair.
+    let history = fs::read_to_string(home.join("data/history.json")).unwrap();
+    assert!(history.contains(&shots.join("pic.png").display().to_string()), "{history}");
+
+    let filtered = ivsr_in(&home, &shots, &["filters", "apply", "out/pic_x2.png", "-o", "out/pic_post.png"]);
+    assert!(filtered.status.success(), "stderr: {}", String::from_utf8_lossy(&filtered.stderr));
+    assert!(shots.join("out/pic_post.png").is_file());
 }
 
 #[test]

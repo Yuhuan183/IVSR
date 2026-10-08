@@ -71,9 +71,16 @@ pub fn expand(inputs: &[PathBuf], recursive: bool, formats: &[FormatInfo]) -> Re
         .collect())
 }
 
+/// `path` against the working directory, so plans, history and tools that
+/// run elsewhere all see the same file.
+fn absolute(path: &Path) -> Result<PathBuf> {
+    std::path::absolute(path).map_err(|e| Error::Input(format!("{}: {e}", path.display())))
+}
+
 fn sources(inputs: &[PathBuf], recursive: bool, formats: &[FormatInfo]) -> Result<Vec<Source>> {
     let mut sources = Vec::new();
     for input in inputs {
+        let input = &absolute(input)?;
         if input.is_dir() {
             collect(input, input, recursive, formats, &mut sources)?;
         } else if input.is_file() {
@@ -90,6 +97,8 @@ pub fn plan(inputs: &[PathBuf], opts: &PlanOptions<'_>, formats: &[FormatInfo]) 
     if sources.is_empty() {
         return Err(Error::Input("no supported image or video files found".into()));
     }
+    let output = opts.output.map(absolute).transpose()?;
+    let opts = &PlanOptions { output: output.as_deref(), ..opts.clone() };
 
     let single_file_output = match opts.output {
         Some(out) => inputs.len() == 1 && sources.len() == 1 && sources[0].root.is_none() && !out.is_dir() && out.extension().is_some(),
