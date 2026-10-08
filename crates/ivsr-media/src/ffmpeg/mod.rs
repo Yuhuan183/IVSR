@@ -80,6 +80,41 @@ impl Ffmpeg {
     }
 }
 
+impl Ffmpeg {
+    /// Writes every frame of `input` as `dir/%08d.png`, at the source's
+    /// constant frame rate via `sync_option` (`-fps_mode` or `-vsync`).
+    fn extract_with(&self, input: &Path, info: &VideoInfo, dir: &Path, ctx: &TaskContext<'_>, sync_option: &str) -> Result<u64> {
+        let ffmpeg = self.ffmpeg()?;
+        let total = info.estimated_frames().max(1) as f64;
+        let mut cmd = process::command(&ffmpeg);
+        cmd.args(["-hide_banner", "-nostdin", "-v", "error", "-progress", "pipe:1", "-i"]).arg(input);
+        // Constant frame rate keeps the frame count consistent with the audio track.
+        cmd.args(["-map", "0:v:0", sync_option, "cfr", "-r"]).arg(format!("{}/{}", info.fps_num, info.fps_den));
+        cmd.args(["-pix_fmt", "rgb24", "-compression_level", "1", "-start_number", "1", "-f", "image2"]);
+        cmd.arg(dir.join("%08d.png"));
+        let mut frames = 0u64;
+        process::run(
+            &mut cmd,
+            "ffmpeg",
+            ctx.cancel,
+            |line| match line.strip_prefix("frame=") {
+                Some(n) => {
+                    if let Ok(n) = n.trim().parse::<u64>() {
+                        frames = n;
+                        (ctx.progress)(n as f64 / total);
+                    }
+                }
+                None if !line.contains('=') => (ctx.log)(LogLevel::Debug, line),
+                None => {}
+            },
+            || {},
+        )?
+        .into_result("ffmpeg")?;
+        (ctx.progress)(1.0);
+        Ok(frames)
+    }
+}
+
 impl VideoIo for Ffmpeg {
     fn status(&self) -> ToolStatus {
         match self.toolchain() {
@@ -122,34 +157,16 @@ impl VideoIo for Ffmpeg {
     }
 
     fn extract_frames(&self, input: &Path, info: &VideoInfo, dir: &Path, ctx: &TaskContext<'_>) -> Result<u64> {
-        let ffmpeg = self.ffmpeg()?;
-        let total = info.estimated_frames().max(1) as f64;
-        let mut cmd = process::command(&ffmpeg);
-        cmd.args(["-hide_banner", "-nostdin", "-v", "error", "-progress", "pipe:1", "-i"]).arg(input);
-        // Constant frame rate keeps the frame count consistent with the audio track.
-        cmd.args(["-map", "0:v:0", "-fps_mode", "cfr", "-r"]).arg(format!("{}/{}", info.fps_num, info.fps_den));
-        cmd.args(["-pix_fmt", "rgb24", "-compression_level", "1", "-start_number", "1", "-f", "image2"]);
-        cmd.arg(dir.join("%08d.png"));
-        let mut frames = 0u64;
-        process::run(
-            &mut cmd,
-            "ffmpeg",
-            ctx.cancel,
-            |line| match line.strip_prefix("frame=") {
-                Some(n) => {
-                    if let Ok(n) = n.trim().parse::<u64>() {
-                        frames = n;
-                        (ctx.progress)(n as f64 / total);
-                    }
-                }
-                None if !line.contains('=') => (ctx.log)(LogLevel::Debug, line),
-                None => {}
-            },
-            || {},
-        )?
-        .into_result("ffmpeg")?;
-        (ctx.progress)(1.0);
-        Ok(frames)
+        // `-fps_mode` arrived in ffmpeg 5.1; older builds (Ubuntu 22.04 ships
+        // 4.4) only know `-vsync`, which newer ones deprecate. They reject the
+        // option before reading any input, so retrying writes nothing twice.
+        match self.extract_with(input, info, dir, ctx, "-fps_mode") {
+            Err(Error::Tool { message, .. }) if message.contains("Unrecognized option 'fps_mode'") => {
+                (ctx.log)(LogLevel::Debug, "ffmpeg predates -fps_mode; using -vsync");
+                self.extract_with(input, info, dir, ctx, "-vsync")
+            }
+            other => other,
+        }
     }
 
     fn open_encoder(&self, setup: &EncoderSetup<'_>) -> Result<Box<dyn FrameEncoder>> {
